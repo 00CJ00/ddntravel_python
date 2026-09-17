@@ -205,12 +205,7 @@
   </div>
 </header>
 
-{% if current_user.role == 'client' %}
-<div class="space-y-1">
-  <span class="text-3xs font-bold text-slate-500 uppercase tracking-widest px-2 block mb-1">Mi Perfil</span>
-  <a href="{{ url_for('main.edit_profile') }}" class="text-3xs font-semibold text-emerald-400 hover:text-emerald-300 mb-2 block">Editar Mi Perfil</a>
-</div>
-{% endif %}
+
 
 <!-- ============================== BODY LAYOUT ============================== -->
 <div class="flex-1 flex max-w-7xl w-full mx-auto pb-12">
