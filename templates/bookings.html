@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+        {{ m.icon('calendar','w-6 h-6 text-sky-400') }} Gestión Centralizada de <span class="font-bold text-sky-400">Reservas (RF-06)</span>
+      </h1>
+      <p class="text-xs text-slate-400 mt-1">{{ bookings|length }} reservas registradas en el sistema</p>
+    </div>
+    <button onclick="openModal('modal-new-booking')" class="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2 self-start">
+      {{ m.icon('plus','w-4 h-4') }} Nueva Reserva</button>
+  </div>
+
+  {% if error %}
+  <div class="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">{{ error }}</div>
+  {% endif %}
+
+  <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-white/5 text-slate-400 uppercase tracking-widest text-3xs font-bold border-b border-white/5">
+          <tr><th class="p-4">Expediente / Código</th><th class="p-4">Titular del Viaje</th><th class="p-4">Paquete & Destino</th>
+            <th class="p-4">Itinerario / Fechas</th><th class="p-4">Estado Operativo</th><th class="p-4">Finanzas & Saldo</th><th class="p-4 text-right">Acciones</th></tr>
+        </thead>
+        <tbody class="divide-y divide-white/5 text-slate-300">
+          {% for b in bookings %}
+          <tr class="hover:bg-white/5 transition-colors" data-searchable>
+            <td class="p-4 font-mono text-3xs text-indigo-300 bg-indigo-500/10 font-semibold">{{ b.booking_code }}</td>
+            <td class="p-4"><p class="font-bold text-white">{{ b.client_name }}</p><p class="text-2xs text-slate-400">{{ b.client_email }}</p></td>
+            <td class="p-4"><p class="font-semibold text-slate-200">{{ b.destination_name }}</p><p class="text-2xs text-slate-400 truncate max-w-[160px]">{{ b.package_name }}</p></td>
+            <td class="p-4 whitespace-nowrap text-2xs">{{ b.departure_date }} ➔ {{ b.return_date }}<span class="block text-slate-500">{{ b.travelers }} viajero(s)</span></td>
+            <td class="p-4 whitespace-nowrap">
+              <span class="px-2.5 py-1 rounded-full text-3xs font-bold {{ 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' if b.status=='Confirmada' else ('bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' if b.status=='En Progreso' else ('bg-rose-500/20 text-rose-300 border border-rose-500/30' if b.status=='Cancelada' else 'bg-amber-500/20 text-amber-300 border border-amber-500/30')) }}">{{ b.status }}</span>
+            </td>
+            <td class="p-4 font-bold text-white whitespace-nowrap">${{ b.total_price|usd }} USD
+              <span class="block text-3xs font-medium {{ 'text-emerald-400' if b.payment_status=='Pagado' else 'text-amber-400' }}">{{ b.payment_status }}</span></td>
+            <td class="p-4 text-right whitespace-nowrap space-x-1">
+              <button onclick='openBookingDetail({{ b.to_dict()|tojson }})' class="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-indigo-300 hover:text-white text-2xs font-bold">Detalle</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

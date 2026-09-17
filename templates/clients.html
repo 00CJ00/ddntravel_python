@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+        {{ m.icon('users','w-6 h-6 text-indigo-400') }} Directorio de Clientes & CRM Turístico (RF-03)
+      </h1>
+      <p class="text-xs text-slate-400 mt-1">{{ clients|length }} clientes registrados</p>
+    </div>
+    <button onclick="openModal('modal-new-client')" class="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2 self-start">
+      {{ m.icon('plus','w-4 h-4') }} Nuevo Cliente</button>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for client in clients %}
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-3xl space-y-3 hover:border-white/20 transition-all" data-searchable>
+      <div class="flex items-start justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-pink-500 to-indigo-500 flex items-center justify-center text-white font-bold text-sm">{{ client.name[0] }}</div>
+          <div><h3 class="font-bold text-sm text-white">{{ client.name }}</h3><p class="text-2xs text-slate-400">{{ client.email }}</p></div>
+        </div>
+        <span class="text-3xs font-bold px-2 py-0.5 rounded-md {{ 'bg-purple-500/20 text-purple-300 border border-purple-500/30' if client.category=='VIP' else 'bg-white/10 text-slate-300 border border-white/10' }}">{{ client.category }}</span>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-2xs">
+        <div class="p-2 rounded-xl bg-black/20"><p class="text-slate-500">Viajes</p><p class="text-white font-bold">{{ client.trips_count }}</p></div>
+        <div class="p-2 rounded-xl bg-black/20"><p class="text-slate-500">Gastado</p><p class="text-emerald-400 font-bold">${{ client.total_spent|usd }}</p></div>
+      </div>
+      <p class="text-2xs text-slate-400">📞 {{ client.phone }} · 🌎 {{ client.nationality }}</p>
+      <p class="text-2xs text-slate-400">Destinos preferidos: {{ client.preferred_destinations|join(', ') }}</p>
+      <div class="flex items-center justify-between pt-2 border-t border-white/5">
+        <span class="text-3xs px-2 py-0.5 rounded-md bg-emerald-500/30 text-emerald-100 border border-emerald-400/40 font-semibold shadow-sm">{{ client.status }}</span>
+        <button onclick="openNewBookingModal(''); document.getElementById('booking-client').value='{{ client.id }}';" class="text-2xs font-bold text-indigo-400 hover:text-indigo-300">+ Reserva</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,153 @@
+/* ===================================================================
+   DDN TRAVEL — estilos complementarios a Tailwind (CDN)
+   Puerto fiel de src/index.css del proyecto original en React.
+=================================================================== */
+
+.text-3xs { font-size: 0.6rem; line-height: 0.85rem; }
+.text-2xs { font-size: 0.68rem; line-height: 0.95rem; }
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
+    Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  transition: background-color .25s ease, color .25s ease;
+}
+
+.bg-deep-space {
+  background-color: #050505;
+  background-image: radial-gradient(circle at 80% 20%, #1a1a2e 0%, #050505 60%);
+  background-attachment: fixed;
+}
+
+.bg-light-pro {
+  background-color: #f8fafc;
+  background-image: radial-gradient(circle at 80% 20%, #e2e8f0 0%, #f8fafc 60%);
+  background-attachment: fixed;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: rgba(0,0,0,.2); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.25); }
+
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.view-fade-in { animation: fadeInUp .3s ease both; }
+
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: spin-slow 8s linear infinite; }
+
+/* Modal overlay */
+.modal-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(8px);
+  align-items: center; justify-content: center;
+  padding: 1rem; overflow-y: auto;
+}
+.modal-overlay.open { display: flex; }
+
+/* ==========================================================================
+   TEMA CLARO (LIGHT PROFESSIONAL)
+   ========================================================================== */
+.theme-light { background-color: #f8fafc !important; color: #1e293b !important; }
+.theme-light ::-webkit-scrollbar-track { background: #f1f5f9; }
+.theme-light ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+
+.theme-light aside, .theme-light header,
+.theme-light .bg-black\/40, .theme-light .bg-black\/30, .theme-light .bg-black\/20,
+.theme-light .bg-white\/5, .theme-light .bg-white\/10,
+.theme-light .bg-slate-900\/90, .theme-light .bg-slate-900\/60, .theme-light .bg-\[\#0d0f17\] {
+  background-color: rgba(255,255,255,.95) !important;
+  border-color: rgba(226,232,240,.9) !important;
+  box-shadow: 0 4px 20px -2px rgba(15,23,42,.05), 0 2px 6px -1px rgba(15,23,42,.03) !important;
+}
+
+.theme-light .border-white\/5, .theme-light .border-white\/10, .theme-light .border-white\/15,
+.theme-light .border-white\/20, .theme-light .border-white\/30 { border-color: #e2e8f0 !important; }
+
+.theme-light .divide-white\/5 > * + *, .theme-light .divide-white\/10 > * + * { border-color: #f1f5f9 !important; }
+
+.theme-light .text-white { color: #0f172a !important; }
+.theme-light .text-slate-200, .theme-light .text-slate-300 { color: #334155 !important; }
+.theme-light .text-slate-400, .theme-light .text-slate-500 { color: #64748b !important; }
+
+.theme-light button.bg-indigo-600, .theme-light button.bg-rose-500, .theme-light button.bg-rose-600,
+.theme-light button.bg-emerald-500, .theme-light button.bg-emerald-600,
+.theme-light .bg-gradient-to-r, .theme-light .bg-gradient-to-tr, .theme-light .bg-gradient-to-br {
+  color: #ffffff !important;
+}
+.theme-light .bg-gradient-to-r *, .theme-light .bg-gradient-to-tr *, .theme-light .bg-gradient-to-br *,
+.theme-light button.bg-indigo-600 * { color: #ffffff !important; }
+
+.theme-light input, .theme-light select, .theme-light textarea {
+  background-color: #ffffff !important; border-color: #cbd5e1 !important; color: #0f172a !important;
+}
+.theme-light input::placeholder, .theme-light textarea::placeholder { color: #94a3b8 !important; }
+
+.theme-light .bg-black\/60, .theme-light .bg-black\/70, .theme-light .bg-black\/80 { background-color: rgba(15,23,42,.45) !important; }
+
+.theme-light thead, .theme-light th { background-color: #f8fafc !important; color: #475569 !important; border-color: #e2e8f0 !important; }
+.theme-light tbody tr:hover { background-color: #f1f5f9 !important; }
+.theme-light .hover\:bg-white\/10:hover, .theme-light .hover\:bg-white\/5:hover { background-color: #f1f5f9 !important; }
+.theme-light .bg-indigo-950\/30, .theme-light .bg-indigo-950\/40 { background-color: #eef2ff !important; border-color: #c7d2fe !important; }
+
+/* Status badges - light theme visibility */
+.theme-light .bg-emerald-500\/20, .theme-light .bg-emerald-500\/30 { background-color: #dcfce7 !important; color: #166534 !important; }
+.theme-light .bg-emerald-500\/30 { border-color: #86efac !important; }
+.theme-light .bg-emerald-100 { background-color: #dcfce7 !important; color: #166534 !important; }
+
+.theme-light .bg-amber-500\/20, .theme-light .bg-amber-500\/30 { background-color: #fef3c7 !important; color: #92400e !important; }
+.theme-light .bg-amber-500\/30 { border-color: #fcd34d !important; }
+.theme-light .bg-amber-100 { background-color: #fef3c7 !important; color: #92400e !important; }
+
+.theme-light .bg-rose-500\/20, .theme-light .bg-rose-500\/30 { background-color: #ffe4e6 !important; color: #9f1239 !important; }
+.theme-light .bg-rose-500\/30 { border-color: #fb7185 !important; }
+.theme-light .bg-rose-100 { background-color: #ffe4e6 !important; color: #9f1239 !important; }
+
+.theme-light .bg-indigo-500\/20, .theme-light .bg-indigo-500\/30 { background-color: #e0e7ff !important; color: #3730a3 !important; }
+.theme-light .bg-indigo-500\/30 { border-color: #a5b4fc !important; }
+.theme-light .bg-indigo-100 { background-color: #e0e7ff !important; color: #3730a3 !important; }
+
+.theme-light .bg-purple-500\/20, .theme-light .bg-purple-500\/30 { background-color: #f3e8ff !important; color: #6b21a8 !important; }
+.theme-light .bg-purple-500\/30 { border-color: #d8b4fe !important; }
+.theme-light .bg-purple-100 { background-color: #f3e8ff !important; color: #6b21a8 !important; }
+
+.theme-light .bg-sky-500\/20, .theme-light .bg-sky-500\/30 { background-color: #e0f2fe !important; color: #0369a1 !important; }
+.theme-light .bg-sky-500\/30 { border-color: #7dd3fc !important; }
+.theme-light .bg-sky-100 { background-color: #e0f2fe !important; color: #0369a1 !important; }
+
+.theme-light .bg-teal-500\/20, .theme-light .bg-teal-500\/30 { background-color: #ccfbf1 !important; color: #134e4a !important; }
+.theme-light .bg-teal-500\/30 { border-color: #5eead4 !important; }
+.theme-light .bg-teal-100 { background-color: #ccfbf1 !important; color: #134e4a !important; }
+
+/* Text gradient fallbacks for light theme */
+.theme-light .text-transparent.bg-clip-text { color: #7c3aed !important; }
+
+/* Card title overlays - ensure visibility in light theme */
+.theme-light .absolute.inset-0.bg-gradient-to-t { background: linear-gradient(to top, rgba(15,23,42,0.8), rgba(15,23,42,0.4), transparent) !important; }
+
+/* Badge text colors for light theme */
+.theme-light .text-emerald-300 { color: #166534 !important; }
+.theme-light .text-emerald-400 { color: #16a34a !important; }
+.theme-light .text-amber-300 { color: #92400e !important; }
+.theme-light .text-amber-400 { color: #d97706 !important; }
+.theme-light .text-rose-300 { color: #9f1239 !important; }
+.theme-light .text-rose-400 { color: #e11d48 !important; }
+.theme-light .text-indigo-300 { color: #4f46e5 !important; }
+.theme-light .text-indigo-400 { color: #6366f1 !important; }
+.theme-light .text-purple-300 { color: #a855f7 !important; }
+.theme-light .text-purple-400 { color: #c084fc !important; }
+.theme-light .text-sky-300 { color: #0ea5e9 !important; }
+.theme-light .text-sky-400 { color: #38bdf8 !important; }
+.theme-light .text-teal-300 { color: #14b8a6 !important; }
+.theme-light .text-teal-400 { color: #2dd4bf !important; }
+.theme-light .text-purple-100 { color: #6b21a8 !important; }
+.theme-light .text-emerald-100 { color: #166534 !important; }
+.theme-light .text-amber-100 { color: #92400e !important; }
+.theme-light .text-rose-100 { color: #9f1239 !important; }
+.theme-light .text-indigo-100 { color: #3730a3 !important; }

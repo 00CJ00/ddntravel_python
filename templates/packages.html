@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <div>
+    <h1 class="text-2xl sm:text-4xl font-extralight tracking-tight flex items-center gap-2">
+      <span class="text-white">Catálogo de </span><span class="font-bold text-purple-300">Paquetes Turísticos</span>
+    </h1>
+    <p class="text-xs sm:text-sm text-slate-400 font-light leading-relaxed mt-1">{{ packages|length }} paquetes disponibles en el catálogo DDN Travel</p>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+    {% for pkg in packages %}
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl overflow-hidden hover:border-white/20 transition-all group" data-searchable>
+      <div class="relative h-40 overflow-hidden">
+        <img src="{{ pkg.image_url or pkg.image }}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
+        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
+        <span class="absolute top-3 left-3 text-3xs font-black px-2 py-0.5 rounded-md bg-purple-500/30 text-purple-100 border border-purple-400/40 uppercase">{{ pkg.category }}</span>
+        <h3 class="absolute bottom-3 left-4 right-4 text-base font-bold leading-tight text-white drop-shadow-lg line-clamp-1">{{ pkg.title }}</h3>
+      </div>
+      <div class="p-4 space-y-3">
+        <p class="text-2xs text-slate-400">{{ pkg.destination_name }} • {{ pkg.duration_days }} días / {{ pkg.duration_nights }} noches</p>
+        <p class="text-2xs text-slate-300 line-clamp-2">{{ pkg.description }}</p>
+        <div class="flex items-center justify-between pt-2 border-t border-white/5">
+          <div>
+            <span class="text-lg font-bold text-emerald-400">${{ pkg.price_usd }}</span><span class="text-2xs text-slate-400"> USD/persona</span>
+            {% if pkg.original_price_usd %}<span class="block text-3xs text-slate-500 line-through">${{ pkg.original_price_usd }}</span>{% endif %}
+          </div>
+          <span class="text-2xs font-bold {{ 'text-emerald-400' if pkg.available_slots > 5 else 'text-rose-400' }}">{{ pkg.available_slots }} cupos</span>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="openNewBookingModal('{{ pkg.id }}')" class="flex-1 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-2xs font-bold hover:from-indigo-500 hover:to-purple-500">Reservar Ahora</button>
+          <button onclick="document.querySelector('#modal-ai-itinerary select[name=destination]').value='{{ pkg.destination_name }}'; openModal('modal-ai-itinerary');" class="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white text-2xs font-bold" title="Generar itinerario IA">✨</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+      {{ m.icon('filetext','w-6 h-6 text-indigo-400') }} Gestión Documental de <span class="font-bold text-indigo-400">Viajeros (RF-17)</span>
+    </h1>
+    <button onclick="openModal('modal-new-document')" class="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2 self-start">
+      {{ m.icon('upload','w-4 h-4') }} Registrar Documento</button>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for doc in documents %}
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-5 space-y-2" data-searchable>
+      <div class="flex items-center justify-between">
+        {{ m.icon('filetext','w-6 h-6 text-indigo-400') }}
+        <span class="text-3xs font-bold px-2 py-0.5 rounded-md {{ 'bg-emerald-500/20 text-emerald-300' if doc.status=='Válido' else 'bg-amber-500/20 text-amber-300' }}">{{ doc.status }}</span>
+      </div>
+      <h3 class="font-bold text-sm text-white mt-3">{{ doc.client_name }}</h3>
+      <p class="text-2xs text-slate-400">{{ doc.doc_type or doc.document_type }}{% if doc.document_number %} · {{ doc.document_number }}{% endif %}</p>
+      <p class="text-2xs text-slate-500 truncate">{{ doc.file_name }}</p>
+      {% if doc.expiry_date %}<p class="text-2xs text-slate-400">Vence: {{ doc.expiry_date }}</p>{% endif %}
+      <form method="POST" action="{{ url_for('main.delete_document', doc_id=doc.id) }}" onsubmit="return confirm('¿Eliminar este documento?');" class="pt-2 border-t border-white/5">
+        <button class="w-full py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-2xs font-bold">Eliminar</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div id="modal-new-document" class="modal-overlay">
+  <div class="relative w-full max-w-lg bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
+    <div class="px-6 py-4 bg-gradient-to-r from-indigo-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
+      <h2 class="text-base font-bold text-white">Registrar Nuevo Documento de Viajero</h2>
+      <button type="button" onclick="closeModal('modal-new-document')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+    <form method="POST" action="{{ url_for('main.new_document') }}" class="flex-1 overflow-y-auto p-6 space-y-4">
+      <div><label class="block text-xs font-semibold text-slate-300 mb-1">Cliente Titular</label>
+        <select name="client_id" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+          {% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select></div>
+      <div><label class="block text-xs font-semibold text-slate-300 mb-1">Tipo de Documento</label>
+        <select name="doc_type" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+          {% for t in ['Pasaporte','Visado','Voucher de Reserva','Póliza de Seguro','Boleto Aéreo'] %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select></div>
+      <div><label class="block text-xs font-semibold text-slate-300 mb-1">N° de Documento</label>
+        <input name="document_number" placeholder="PAS-0091823" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+      <div><label class="block text-xs font-semibold text-slate-300 mb-1">Fecha de Expiración</label>
+        <input type="date" name="expiry_date" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="closeModal('modal-new-document')" class="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 text-xs font-semibold">Cancelar</button>
+        <button type="submit" class="px-6 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30">Registrar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

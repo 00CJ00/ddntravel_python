@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+    {{ m.icon('shieldalert','w-6 h-6 text-rose-400') }} Trazabilidad & <span class="font-bold text-rose-400">Auditoría del Sistema (RF-19 / RN-05)</span>
+  </h1>
+
+  <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-white/5 text-slate-400 uppercase tracking-widest text-3xs font-bold border-b border-white/5">
+          <tr><th class="p-4">Timestamp & IP</th><th class="p-4">Usuario Responsable</th><th class="p-4">Módulo</th><th class="p-4">Acción</th><th class="p-4">Detalle</th></tr>
+        </thead>
+        <tbody class="divide-y divide-white/5 text-slate-300">
+          {% for log in logs %}
+          <tr class="hover:bg-white/5 transition-colors" data-searchable>
+            <td class="p-4 text-2xs whitespace-nowrap">{{ log.timestamp }}<span class="block text-slate-500 font-mono">{{ log.ip_address }}</span></td>
+            <td class="p-4"><p class="font-semibold text-white">{{ log.user_name }}</p><span class="text-3xs text-slate-500 uppercase">{{ log.user_role }}</span></td>
+            <td class="p-4 text-2xs">{{ log.module }}</td>
+            <td class="p-4"><span class="px-2 py-0.5 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-300 text-3xs font-bold font-mono">{{ log.action }}</span></td>
+            <td class="p-4 text-2xs text-slate-400 max-w-sm">{{ log.details }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,302 @@
+{% import 'macros.html' as m %}
+
+<!-- ============================== MODAL: NUEVA RESERVA ============================== -->
+<div id="modal-new-booking" class="modal-overlay">
+  <div class="relative w-full max-w-3xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
+    <div class="px-6 py-4 bg-gradient-to-r from-sky-900/80 via-indigo-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center font-bold text-sky-300">DDN</div>
+        <div>
+          <h2 class="text-lg font-bold">Crear Nueva Reserva de Viaje</h2>
+          <p class="text-xs text-sky-200">Automatización de reservas con validación de cupos y clientes</p>
+        </div>
+      </div>
+      <button type="button" onclick="closeModal('modal-new-booking')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+
+    <form method="POST" action="{{ url_for('main.new_booking') }}" class="flex-1 overflow-y-auto p-6 space-y-5" id="new-booking-form">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Cliente Registrado</label>
+          <select name="client_id" id="booking-client" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            {% for c in store.clients %}
+            <option value="{{ c.id }}" class="bg-slate-900">{{ c.name }} — {{ c.category }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Paquete Turístico (Opcional)</label>
+          <select name="package_id" id="booking-package" onchange="recalcBookingPrice()" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— Itinerario personalizado —</option>
+            {% for p in store.packages %}
+            <option value="{{ p.id }}" data-price="{{ p.price_usd }}" data-slots="{{ p.available_slots }}" data-dest="{{ p.destination_name }}">{{ p.title }} (${{ p.price_usd }} USD) — {{ p.available_slots }} cupos</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Fecha de Salida</label>
+          <input type="date" name="departure_date" value="2026-09-20" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Fecha de Retorno</label>
+          <input type="date" name="return_date" value="2026-09-25" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Número de Viajeros</label>
+        <input type="number" name="travelers" id="booking-travelers" min="1" max="10" value="2" oninput="syncPassengers(); recalcBookingPrice();" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+
+      <div id="passenger-rows" class="space-y-2"></div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Hotel Aliado (Opcional)</label>
+          <select name="hotel_id" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— Ninguno —</option>
+            {% for h in store.hotels %}<option value="{{ h.id }}">{{ h.name }} ({{ h.stars }}★)</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Vuelo (Opcional)</label>
+          <select name="flight_id" id="booking-flight" onchange="recalcBookingPrice()" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— Ninguno —</option>
+            {% for f in store.flights %}<option value="{{ f.id }}" data-price="{{ f.price_usd }}">{{ f.airline }} ({{ f.flight_number }}): {{ f.origin }} ➔ {{ f.destination }} (+${{ f.price_usd }} USD/pax)</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Código de Promoción</label>
+        <div class="flex gap-2">
+          <input type="text" name="promo_code" id="booking-promo" placeholder="Ej. VERANO20" class="flex-1 px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <button type="button" onclick="applyPromoPreview()" class="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-bold">Aplicar</button>
+        </div>
+        <p id="promo-message" class="text-2xs mt-1"></p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Pago Inicial (USD)</label>
+          <input type="number" step="10" min="0" name="initial_payment" id="booking-initial-payment" value="0" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Método de Pago</label>
+          <select name="payment_method" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            {% for method in ['Tarjeta de Crédito','Transferencia Bancaria','Efectivo','Cripto','PayPal'] %}
+            <option value="{{ method }}">{{ method }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Notas Adicionales</label>
+        <textarea name="notes" rows="2" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+      </div>
+
+      <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-between">
+        <span class="text-xs font-semibold text-indigo-300 uppercase tracking-wider">Total Estimado</span>
+        <span id="booking-total-display" class="text-xl font-bold text-white">$0 USD</span>
+      </div>
+
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="closeModal('modal-new-booking')" class="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 text-xs font-semibold">Cancelar</button>
+        <button type="submit" class="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold hover:from-indigo-500 hover:to-purple-500 shadow-lg shadow-indigo-600/30">Confirmar Reserva</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== MODAL: NUEVO CLIENTE ============================== -->
+<div id="modal-new-client" class="modal-overlay">
+  <div class="relative w-full max-w-xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
+    <div class="px-6 py-4 bg-gradient-to-r from-purple-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
+      <h2 class="text-lg font-bold">Registrar Nuevo Cliente (RF-03)</h2>
+      <button type="button" onclick="closeModal('modal-new-client')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+    <form method="POST" action="{{ url_for('main.new_client') }}" class="flex-1 overflow-y-auto p-6 space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Nombre Completo</label>
+          <input required name="name" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Correo Electrónico</label>
+          <input required type="email" name="email" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Teléfono</label>
+          <input name="phone" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Cédula / Pasaporte</label>
+          <input name="document_id" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Categoría</label>
+          <select name="category" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+            {% for c in ['Estándar','Frecuente','VIP','Corporativo'] %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+          </select></div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Presupuesto Preferido</label>
+          <select name="budget_preference" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+            {% for b in ['Económico','Medio','Premium','Ultra Lujo'] %}<option value="{{ b }}" {{ 'selected' if b=='Premium' }}>{{ b }}</option>{% endfor %}
+          </select></div>
+      </div>
+      <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Destinos de Interés (separados por coma)</label>
+        <input name="preferred_destinations" value="Punta Cana, Cancún" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Nacionalidad</label>
+          <input name="nationality" value="República Dominicana" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Vencimiento Pasaporte</label>
+          <input type="date" name="passport_expiry" value="2029-12-31" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></div>
+      </div>
+      <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Notas</label>
+        <textarea name="notes" rows="2" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></textarea></div>
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="closeModal('modal-new-client')" class="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 text-xs font-semibold">Cancelar</button>
+        <button type="submit" class="px-6 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30">Registrar Cliente</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== MODAL: REGISTRAR PAGO ============================== -->
+<div id="modal-new-payment" class="modal-overlay">
+  <div class="relative w-full max-w-lg bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
+    <div class="px-6 py-4 bg-gradient-to-r from-emerald-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
+      <h2 class="text-lg font-bold">Registrar Pago (RF-11 / RN-03)</h2>
+      <button type="button" onclick="closeModal('modal-new-payment')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+    <form method="POST" action="{{ url_for('main.new_payment') }}" class="flex-1 overflow-y-auto p-6 space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Reserva Pendiente de Pago</label>
+        <select name="booking_id" id="payment-booking-select" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+          {% for b in store.bookings if b.payment_status != 'Pagado' and b.status != 'Cancelada' %}
+          <option value="{{ b.id }}">{{ b.booking_code }} — {{ b.client_name }} (Saldo: ${{ '%.0f'|format(b.total_price - b.amount_paid) }} USD)</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Monto a Pagar (USD)</label>
+          <input required type="number" step="0.01" min="0.01" name="amount" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Método de Pago</label>
+          <select name="payment_method" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+            {% for method in ['Tarjeta de Crédito','Transferencia Bancaria','Efectivo','Cripto','PayPal'] %}<option value="{{ method }}">{{ method }}</option>{% endfor %}
+          </select></div>
+      </div>
+      <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Referencia de Transacción (Opcional)</label>
+        <input name="reference" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"></div>
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="closeModal('modal-new-payment')" class="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 text-xs font-semibold">Cancelar</button>
+        <button type="submit" class="px-6 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30">Registrar Pago</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================== MODAL: DETALLE DE RESERVA (JS) ============================== -->
+<div id="modal-booking-detail" class="modal-overlay">
+  <div class="relative w-full max-w-2xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
+    <div class="px-6 py-4 bg-gradient-to-r from-sky-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
+      <h2 class="text-lg font-bold">Detalle de la Reserva</h2>
+      <button type="button" onclick="closeModal('modal-booking-detail')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+    <div id="booking-detail-body" class="flex-1 overflow-y-auto p-6 space-y-4 text-xs"></div>
+  </div>
+</div>
+
+<!-- ============================== MODAL: FACTURA (JS) ============================== -->
+<div id="modal-invoice" class="modal-overlay">
+  <div class="relative w-full max-w-lg bg-white text-slate-800 rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col">
+    <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+      <h2 class="text-lg font-bold">Factura / Comprobante DDN Travel</h2>
+      <button type="button" onclick="closeModal('modal-invoice')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+    <div id="invoice-body" class="flex-1 overflow-y-auto p-6 space-y-3 text-xs"></div>
+  </div>
+</div>
+
+<!-- ============================== MODAL: ITINERARIO IA ============================== -->
+<div id="modal-ai-itinerary" class="modal-overlay">
+  <div class="relative w-full max-w-2xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[92vh] flex flex-col text-white">
+    <div class="px-6 py-4 bg-gradient-to-r from-indigo-900/80 via-purple-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">{{ m.icon('compass','w-5 h-5') }}</div>
+        <div><h2 class="text-base font-bold">Generador de Itinerarios con IA (RF-20)</h2>
+          <p class="text-xs text-indigo-300">Crea un itinerario día a día personalizado con Gemini</p></div>
+      </div>
+      <button type="button" onclick="closeModal('modal-ai-itinerary')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-6 space-y-4">
+      <form id="itinerary-form" class="space-y-4" onsubmit="return submitItineraryForm(event)">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Destino</label>
+            <select name="destination" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+              {% for d in store.destinations %}<option value="{{ d.name }}">{{ d.name }}</option>{% endfor %}
+            </select></div>
+          <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Duración (días)</label>
+            <input type="number" name="days" min="1" max="14" value="4" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">N° de Viajeros</label>
+            <input type="number" name="travelers" min="1" max="10" value="2" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+          <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Tipo de Viaje</label>
+            <input name="travelType" value="Vacaciones en Pareja / Relax" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+        </div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Ritmo Deseado</label>
+          <input name="pace" value="Equilibrado (Descanso + Tours)" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Notas</label>
+          <textarea name="notes" rows="2" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white">Nos encanta la gastronomía marina y los paseos en bote.</textarea></div>
+        <div class="pt-2 flex justify-end gap-3">
+          <button type="button" onclick="closeModal('modal-ai-itinerary')" class="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 text-xs font-semibold">Cancelar</button>
+          <button type="submit" id="itinerary-submit-btn" class="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2">
+            {{ m.icon('sparkles','w-4 h-4 text-amber-300') }} Generar Itinerario con IA</button>
+        </div>
+      </form>
+      <div id="itinerary-result" class="hidden space-y-4"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== MODAL: RECOMENDADOR IA ============================== -->
+<div id="modal-ai-recommend" class="modal-overlay">
+  <div class="relative w-full max-w-2xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[92vh] flex flex-col text-white">
+    <div class="px-6 py-4 bg-gradient-to-r from-teal-900/80 via-emerald-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="p-2.5 rounded-2xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">{{ m.icon('sparkles','w-5 h-5 text-amber-300') }}</div>
+        <div><h2 class="text-base font-bold">Motor de Recomendaciones Inteligentes (RF-20)</h2>
+          <p class="text-xs text-emerald-300">Algoritmo de afinidad de paquetes turísticos con IA</p></div>
+      </div>
+      <button type="button" onclick="closeModal('modal-ai-recommend')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-6 space-y-5">
+      <form id="recommend-form" class="space-y-4" onsubmit="return submitRecommendForm(event)">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Seleccionar Perfil de Cliente</label>
+          <select name="clientId" id="recommend-client" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+            {% for c in store.clients %}<option value="{{ c.id }}">{{ c.name }} ({{ c.category }}) - Presupuesto: {{ c.budget_preference }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Presupuesto Disponible (USD)</label>
+            <input type="number" step="100" min="500" name="budget" value="2500" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+          <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">N° de Viajeros</label>
+            <input type="number" min="1" max="10" name="travelersCount" value="2" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+        </div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Estilo de Experiencia Deseada</label>
+          <select name="travelStyle" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+            {% for s in ['Playa & Lujo All-Inclusive','Aventura, Montaña & Trekking','Cultura, Arte & Historia','Ecoturismo & Naturaleza Virgen','Circuito Multidestino Internacional'] %}
+            <option value="{{ s }}">{{ s }}</option>{% endfor %}
+          </select></div>
+        <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Intereses y Preferencias Específicas</label>
+          <textarea name="interests" rows="2" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white">Gastronomía de autor, spa de clase mundial, excursión en yate</textarea></div>
+        <div class="pt-2 flex justify-end gap-3">
+          <button type="button" onclick="closeModal('modal-ai-recommend')" class="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 text-xs font-semibold">Cancelar</button>
+          <button type="submit" id="recommend-submit-btn" class="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 flex items-center gap-2">
+            {{ m.icon('sparkles','w-4 h-4 text-amber-300') }} Calcular Recomendaciones</button>
+        </div>
+      </form>
+      <div id="recommend-result" class="hidden space-y-4"></div>
+    </div>
+  </div>
+</div>

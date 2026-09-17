@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-8 view-fade-in">
+  {% if error %}
+  <div class="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">{{ error }}</div>
+  {% endif %}
+
+  <div class="p-6 sm:p-8 rounded-3xl bg-black/30 backdrop-blur-2xl border border-white/10 text-white shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+    <div class="absolute top-0 right-0 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="space-y-2 max-w-2xl relative z-10">
+      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold border border-indigo-500/30">
+        {{ m.icon('sparkles','w-3.5 h-3.5 text-indigo-300') }}<span>Panel Ejecutivo DDN Travel</span>
+      </div>
+      <h1 class="text-2xl sm:text-4xl font-light text-white tracking-tight">Panel de <span class="font-bold text-indigo-400">Gestión Inteligente</span></h1>
+      <p class="text-xs sm:text-sm text-slate-400 leading-relaxed">Operaciones Globales DDN, monitoreo de disponibilidad hotelera y aérea en tiempo real & algoritmos predictivos con IA.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-3 relative z-10">
+      <a href="{{ url_for('main.ai_predictive') }}" class="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2">
+        {{ m.icon('sparkles','w-4 h-4 text-amber-300') }} IA Estadísticas Predictivas</a>
+      <button onclick="openModal('modal-new-booking')" class="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/15 text-white border border-white/10 text-xs font-bold shadow-md flex items-center gap-2">
+        {{ m.icon('plus','w-4 h-4 text-indigo-400') }} Nueva Reserva (RF-06)</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-3xl hover:border-white/20 transition-all">
+      <div class="flex items-center justify-between text-slate-400">
+        <span class="text-xs uppercase tracking-widest text-slate-500 font-bold">Ingresos Recaudados</span>
+        <div class="p-2 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">{{ m.icon('dollar','w-4 h-4') }}</div>
+      </div>
+      <div class="flex items-baseline gap-2 mt-2">
+        <span class="text-2xl sm:text-3xl font-bold text-white tracking-tight">${{ total_revenue|usd }}</span>
+        <span class="text-xs font-medium text-slate-400">USD</span>
+      </div>
+      <div class="flex items-center justify-between text-2xs pt-2 text-slate-400 border-t border-white/5 mt-2">
+        <span>Volumen contratado:</span><span class="font-semibold text-slate-200">${{ total_booked_value|usd }} USD</span>
+      </div>
+    </div>
+
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-3xl hover:border-white/20 transition-all">
+      <div class="flex items-center justify-between text-slate-400">
+        <span class="text-xs uppercase tracking-widest text-slate-500 font-bold">Reservas Activas</span>
+        <div class="p-2 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">{{ m.icon('calendar','w-4 h-4') }}</div>
+      </div>
+      <div class="flex items-baseline gap-2 mt-2">
+        <span class="text-2xl sm:text-3xl font-bold text-white tracking-tight">{{ active_bookings_count }}</span>
+        <span class="text-xs font-medium text-slate-400">operativas</span>
+        <span class="text-2xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 ml-auto">{{ store.bookings|length }} totales</span>
+      </div>
+      <div class="flex items-center justify-between text-2xs pt-2 text-slate-400 border-t border-white/5 mt-2">
+        <span>Por liquidar saldo:</span><span class="font-semibold text-amber-400">{{ pending_payment_count }} reservas</span>
+      </div>
+    </div>
+
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-3xl hover:border-white/20 transition-all">
+      <div class="flex items-center justify-between text-slate-400">
+        <span class="text-xs uppercase tracking-widest text-slate-500 font-bold">Clientes en CRM</span>
+        <div class="p-2 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/30">{{ m.icon('users','w-4 h-4') }}</div>
+      </div>
+      <div class="flex items-baseline gap-2 mt-2">
+        <span class="text-2xl sm:text-3xl font-bold text-white tracking-tight">{{ store.clients|length }}</span>
+        <span class="text-xs font-medium text-slate-400">perfiles</span>
+      </div>
+      <div class="flex items-center justify-between text-2xs pt-2 text-slate-400 border-t border-white/5 mt-2">
+        <span>Categoría VIP:</span><span class="font-semibold text-purple-300">{{ store.clients|selectattr('category','equalto','VIP')|list|length }} clientes</span>
+      </div>
+    </div>
+
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-3xl hover:border-white/20 transition-all">
+      <div class="flex items-center justify-between text-slate-400">
+        <span class="text-xs uppercase tracking-widest text-slate-500 font-bold">Ocupación de Paquetes</span>
+        <div class="p-2 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">{{ m.icon('package','w-4 h-4') }}</div>
+      </div>
+      <div class="flex items-baseline gap-2 mt-2">
+        <span class="text-2xl sm:text-3xl font-bold text-white tracking-tight">{{ occupancy }}%</span>
+        <span class="text-xs font-medium text-slate-400">ocupado</span>
+      </div>
+      <div class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden mt-2">
+        <div class="bg-amber-500 h-1.5 rounded-full" style="width:{{ occupancy }}%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-2 bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl flex flex-col">
+      <div class="flex items-center justify-between p-5 pb-3 border-b border-white/5">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">{{ m.icon('calendar','w-4 h-4 text-sky-400') }} Reservas Recientes</h3>
+        <a href="{{ url_for('main.bookings') }}" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300">Ver todas ({{ store.bookings|length }}) →</a>
+      </div>
+      <div class="overflow-x-auto flex-1">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-white/5 text-slate-400 uppercase tracking-widest text-3xs font-bold">
+            <tr><th class="p-3.5">Código / Cliente</th><th class="p-3.5">Destino & Paquete</th><th class="p-3.5">Fechas</th><th class="p-3.5">Estado</th><th class="p-3.5">Monto Total</th><th class="p-3.5 text-right">Acción</th></tr>
+          </thead>
+          <tbody class="divide-y divide-white/5 text-slate-300">
+            {% for b in recent_bookings %}
+            <tr class="hover:bg-white/5 transition-colors">
+              <td class="p-3.5"><p class="font-bold text-white">{{ b.client_name }}</p>
+                <span class="font-mono text-3xs text-purple-100 bg-purple-600/90 border border-purple-400/50 px-2 py-0.5 rounded-md font-semibold shadow-sm">{{ b.booking_code }}</span></td>
+              <td class="p-3.5"><p class="font-semibold text-slate-200">{{ b.destination_name }}</p><p class="text-2xs text-slate-400 truncate max-w-[160px]">{{ b.package_name }}</p></td>
+              <td class="p-3.5 whitespace-nowrap text-2xs">{{ b.departure_date }} ➔ {{ b.return_date }}<span class="block text-slate-500">{{ b.travelers }} viajero(s)</span></td>
+              <td class="p-3.5 whitespace-nowrap">
+                <span class="px-2.5 py-1 rounded-full text-3xs font-bold {{ 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' if b.status=='Confirmada' else ('bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' if b.status=='En Progreso' else ('bg-rose-500/20 text-rose-300 border border-rose-500/30' if b.status=='Cancelada' else 'bg-amber-500/20 text-amber-300 border border-amber-500/30')) }}">{{ b.status }}</span>
+              </td>
+              <td class="p-3.5 font-bold text-white whitespace-nowrap">${{ b.total_price|usd }} USD
+                <span class="block text-3xs font-medium {{ 'text-emerald-400' if b.payment_status=='Pagado' else 'text-amber-400' }}">{{ b.payment_status }}</span></td>
+              <td class="p-3.5 text-right whitespace-nowrap">
+                <button onclick='openBookingDetail({{ b.to_dict()|tojson }})' class="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-indigo-300 hover:text-white text-2xs font-bold">Ver Detalle</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="space-y-6">
+      <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl p-5 space-y-4">
+        <div class="flex items-center justify-between pb-2 border-b border-white/5">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">{{ m.icon('package','w-4 h-4 text-purple-400') }} Cupos de Paquetes (RN-01)</h3>
+          <a href="{{ url_for('main.packages') }}" class="text-xs font-semibold text-purple-400 hover:text-purple-300">Catálogo →</a>
+        </div>
+        <div class="space-y-3">
+          {% for pkg in top_packages %}
+          <div class="p-3 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex gap-3 items-center">
+            <img src="{{ pkg.image_url or pkg.image }}" class="w-14 h-14 rounded-xl object-cover shrink-0 border border-white/10">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-start justify-between gap-1">
+                <h4 class="text-xs font-bold text-white truncate">{{ pkg.title }}</h4>
+                <span class="text-xs font-bold text-emerald-400 shrink-0">${{ pkg.price_usd }}</span>
+              </div>
+              <p class="text-3xs text-slate-400 truncate">{{ pkg.destination_name }} • {{ pkg.duration_days }}D / {{ pkg.duration_nights }}N</p>
+              <div class="mt-1 flex items-center justify-between text-3xs">
+                <span class="text-slate-400">Cupos:</span>
+                <span class="font-bold {{ 'text-emerald-400' if pkg.available_slots > 5 else 'text-rose-400' }}">{{ pkg.available_slots }} / {{ pkg.max_capacity or pkg.total_slots or 20 }} libres</span>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="p-5 rounded-3xl bg-gradient-to-br from-indigo-900/40 to-purple-900/30 border border-white/10 text-white shadow-xl space-y-3">
+        <h3 class="text-3xs font-bold uppercase tracking-widest text-indigo-300">Accesos Directos Rápidos</h3>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <a href="{{ url_for('main.clients') }}" class="p-3 rounded-2xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 font-medium text-indigo-100">👥 Nuevo Cliente</a>
+          <a href="{{ url_for('main.payments') }}" class="p-3 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 font-medium text-emerald-100">💳 Facturar Pago</a>
+          <a href="{{ url_for('main.promotions') }}" class="p-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 font-medium text-amber-100">🏷 Crear Cupón</a>
+          <a href="{{ url_for('main.documents') }}" class="p-3 rounded-2xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 font-medium text-purple-100">📄 Pasaportes</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <h1 class="text-xl sm:text-2xl font-bold text-white flex items-center gap-2.5">
+      {{ m.icon('tag','w-6 h-6 text-pink-400') }} Promociones, Descuentos & Cupones (RF-12)
+    </h1>
+    <button onclick="openModal('modal-new-promotion')" class="px-4 py-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold shadow-lg shadow-pink-600/30 flex items-center gap-2 self-start">
+      {{ m.icon('plus','w-4 h-4') }} Crear Cupón</button>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for p in promotions %}
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-5 space-y-2" data-searchable>
+      <div class="flex items-center justify-between">
+        <span class="font-mono text-sm font-black text-pink-300 bg-pink-500/10 border border-pink-500/20 px-2 py-0.5 rounded-md">{{ p.code }}</span>
+        <span class="text-3xs font-bold px-2 py-0.5 rounded-md {{ 'bg-emerald-500/20 text-emerald-300' if p.active else 'bg-slate-500/20 text-slate-400' }}">{{ 'Activo' if p.active else 'Inactivo' }}</span>
+      </div>
+      <h3 class="font-bold text-sm text-white mt-1">{{ p.title }}</h3>
+      <p class="text-2xs text-slate-400">{{ p.description }}</p>
+      <div class="flex items-center justify-between text-2xs pt-2 border-t border-white/5">
+        <span class="text-white font-bold text-lg">-{{ p.discount_percentage }}%</span>
+        <span class="text-slate-400">{{ p.current_uses }}/{{ p.max_uses }} usos</span>
+      </div>
+      <p class="text-3xs text-slate-500">Vence: {{ p.valid_until }}</p>
+      <form method="POST" action="{{ url_for('main.toggle_promotion', promo_id=p.id) }}">
+        <button class="w-full mt-1 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white text-2xs font-bold">{{ 'Desactivar' if p.active else 'Activar' }}</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div id="modal-new-promotion" class="modal-overlay">
+  <div class="relative w-full max-w-lg bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
+    <div class="px-6 py-4 bg-gradient-to-r from-pink-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
+      <h2 class="text-base font-bold text-white">Crear Código Promocional (RF-12)</h2>
+      <button type="button" onclick="closeModal('modal-new-promotion')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
+    </div>
+    <form method="POST" action="{{ url_for('main.new_promotion') }}" class="flex-1 overflow-y-auto p-6 space-y-4">
+      <div><label class="block text-xs font-semibold text-slate-300 mb-1">Código (Ej. VERANO20)</label>
+        <input required name="code" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white uppercase"></div>
+      <div><label class="block text-xs font-semibold text-slate-300 mb-1">Título de la Campaña</label>
+        <input required name="title" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+      <div><label class="block text-xs font-semibold text-slate-300 mb-1">Descripción</label>
+        <textarea name="description" rows="2" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></textarea></div>
+      <div class="grid grid-cols-2 gap-4">
+        <div><label class="block text-xs font-semibold text-slate-300 mb-1">% Descuento</label>
+          <input type="number" name="discount_percentage" min="1" max="90" value="15" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+        <div><label class="block text-xs font-semibold text-slate-300 mb-1">Usos Máximos</label>
+          <input type="number" name="max_uses" min="1" value="50" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+      </div>
+      <div><label class="block text-xs font-semibold text-slate-300 mb-1">Fecha Límite</label>
+        <input type="date" name="valid_until" value="2026-12-31" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white"></div>
+      <div class="pt-2 flex justify-end gap-3">
+        <button type="button" onclick="closeModal('modal-new-promotion')" class="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 text-xs font-semibold">Cancelar</button>
+        <button type="submit" class="px-6 py-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold shadow-lg shadow-pink-600/30">Crear Cupón</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

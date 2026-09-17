@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-8 view-fade-in">
+  <div class="relative overflow-hidden rounded-3xl bg-black/40 backdrop-blur-3xl text-white p-6 sm:p-8 shadow-2xl border border-white/10">
+    <div class="absolute -top-24 -right-24 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+      <div class="max-w-2xl space-y-3">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold">
+          {{ m.icon('sparkles','w-3.5 h-3.5 text-amber-300 animate-spin-slow') }}<span>MOTOR IA PREDICTIVO GEMINI (RF-20)</span>
+        </div>
+        <h1 class="text-2xl sm:text-4xl font-light text-white tracking-tight leading-tight">Estadísticas Predictivas de <span class="font-bold text-indigo-400">Comportamiento de Compra</span></h1>
+        <p class="text-slate-400 text-xs sm:text-sm leading-relaxed">Analítica predictiva en tiempo real sobre patrones de consumo, forecasting de demanda por destino, propensión de reserva por segmento y detección de temporadas altas.</p>
+      </div>
+      <form method="GET" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
+        <select name="timeframe" onchange="this.form.submit()" class="px-3.5 py-2.5 rounded-xl bg-black/60 text-white text-xs font-medium border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          {% for tf in ['Próximos 30 días','Próximo Trimestre (Q3)','Próximos 6 meses (Q3 & Q4)','Temporada Alta Verano 2027'] %}
+          <option value="{{ tf }}" {{ 'selected' if tf==timeframe }}>{{ tf }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
+          {{ m.icon('refresh','w-3.5 h-3.5') }}<span>Recalcular con IA</span></button>
+      </form>
+    </div>
+  </div>
+
+  {% set pd = predictive_data %}
+  {% if pd %}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="p-5 rounded-3xl bg-white/5 backdrop-blur-md border border-white/10 shadow-xl space-y-3 hover:border-white/20 transition-all">
+      <div class="flex items-center justify-between">
+        <span class="text-xs uppercase tracking-widest text-slate-500 font-bold">Índice Global de Propensión</span>
+        <span class="p-2 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">{{ m.icon('target','w-4 h-4') }}</span>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span class="text-3xl font-bold text-white tracking-tight">{{ pd.purchasePropensityIndex }}</span><span class="text-xs font-medium text-slate-400">/ 100</span>
+      </div>
+      <div class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden"><div class="bg-emerald-500 h-1.5 rounded-full" style="width:{{ pd.purchasePropensityIndex }}%"></div></div>
+      <p class="text-2xs text-slate-400">{{ pd.summary[:90] }}…</p>
+    </div>
+    <div class="p-5 rounded-3xl bg-white/5 backdrop-blur-md border border-white/10 shadow-xl space-y-3 hover:border-white/20 transition-all">
+      <div class="flex items-center justify-between">
+        <span class="text-xs uppercase tracking-widest text-slate-500 font-bold">Ingresos Proyectados</span>
+        <span class="p-2 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">{{ m.icon('dollar','w-4 h-4') }}</span>
+      </div>
+      <span class="text-3xl font-bold text-white tracking-tight">${{ pd.nextQuarterForecastRevenue|round|int|usd }}</span>
+      <p class="text-2xs text-slate-400">Próximo periodo proyectado</p>
+    </div>
+    <div class="p-5 rounded-3xl bg-white/5 backdrop-blur-md border border-white/10 shadow-xl space-y-3 hover:border-white/20 transition-all">
+      <div class="flex items-center justify-between">
+        <span class="text-xs uppercase tracking-widest text-slate-500 font-bold">Crecimiento Proyectado</span>
+        <span class="p-2 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/30">{{ m.icon('trending','w-4 h-4') }}</span>
+      </div>
+      <span class="text-3xl font-bold text-white tracking-tight">+{{ pd.growthRateProjected }}%</span>
+      <p class="text-2xs text-slate-400">vs. periodo anterior</p>
+    </div>
+    <div class="p-5 rounded-3xl bg-white/5 backdrop-blur-md border border-white/10 shadow-xl space-y-3 hover:border-white/20 transition-all">
+      <div class="flex items-center justify-between">
+        <span class="text-xs uppercase tracking-widest text-slate-500 font-bold">Segmentos Analizados</span>
+        <span class="p-2 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">{{ m.icon('layers','w-4 h-4') }}</span>
+      </div>
+      <span class="text-3xl font-bold text-white tracking-tight">{{ pd.customerSegmentsBehavior|length }}</span>
+      <p class="text-2xs text-slate-400">perfiles de comportamiento</p>
+    </div>
+  </div>
+
+  <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl p-5 space-y-4">
+    <h3 class="text-sm font-bold text-white flex items-center gap-2">{{ m.icon('users','w-4 h-4 text-indigo-400') }} Comportamiento por Segmento de Cliente</h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {% for seg in pd.customerSegmentsBehavior %}
+      <div class="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2 text-xs">
+        <p class="font-bold text-white">{{ seg.segment }}</p>
+        <div class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden"><div class="bg-indigo-500 h-1.5 rounded-full" style="width:{{ seg.propensityScore }}%"></div></div>
+        <p class="text-2xs text-slate-400">Propensión: <span class="text-white font-semibold">{{ seg.propensityScore }}%</span> · Ticket prom.: <span class="text-emerald-400 font-semibold">${{ seg.avgTicketProjected }}</span></p>
+        <p class="text-2xs text-slate-400">Temporada: {{ seg.preferredSeason }} · Churn: {{ seg.riskOfChurn }}</p>
+        <p class="text-2xs text-indigo-300">{{ seg.recommendedAction }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl p-5 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-white/5">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">{{ m.icon('compass','w-4 h-4 text-emerald-400') }} Destinos con Mayor Demanda Predictiva</h3>
+      </div>
+      <div class="space-y-3">
+        {% for dest in pd.topPredictedDestinations %}
+        <div class="p-3.5 rounded-2xl bg-white/5 border border-white/5 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-white flex items-center gap-2">
+              <span class="w-5 h-5 rounded-md bg-indigo-600 text-white flex items-center justify-center text-3xs font-bold">#{{ loop.index }}</span>{{ dest.destination }}
+            </span>
+            <div class="text-right"><span class="text-xs font-bold text-emerald-400">{{ dest.demandProbability }}% prob.</span>
+              <span class="text-3xs text-slate-400 block">~{{ dest.estimatedBookings }} reservas est.</span></div>
+          </div>
+          <div class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden"><div class="bg-emerald-500 h-1.5 rounded-full" style="width:{{ dest.demandProbability }}%"></div></div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-2xs pt-1">
+            <p class="text-slate-300"><strong class="text-indigo-300">Tarifa:</strong> {{ dest.recommendedPricingStrategy }}</p>
+            <p class="text-slate-400"><strong class="text-slate-300">Drivers:</strong> {{ dest.keyDrivers }}</p>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="space-y-6">
+      <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl p-5 space-y-4">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">{{ m.icon('alerttriangle','w-4 h-4 text-amber-400') }} Alertas de Temporalidad & Picos de Demanda</h3>
+        <div class="space-y-3">
+          {% for alert in pd.seasonalityAlerts %}
+          <div class="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-1.5">
+            <div class="flex items-center justify-between"><span class="font-bold text-amber-300">{{ alert.period }}</span>
+              <span class="text-3xs font-black px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">Impacto {{ alert.impact }}</span></div>
+            <p class="text-amber-200/90 text-2xs">{{ alert.description }}</p>
+            <p class="text-2xs font-medium text-amber-300 bg-black/30 p-2 rounded-xl border border-amber-500/10">💡 <strong>Consejo Táctico:</strong> {{ alert.tacticalAdvice }}</p>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl p-5 space-y-3">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">{{ m.icon('shieldcheck','w-4 h-4 text-indigo-400') }} Retención & Prevención de Churn</h3>
+        <ul class="space-y-2 text-xs text-slate-300">
+          {% for insight in pd.churnPreventionInsights %}
+          <li class="flex items-start gap-2.5 p-2.5 rounded-2xl bg-white/5 border border-white/5">
+            <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0"></span><span class="text-2xs leading-relaxed">{{ insight }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="p-6 rounded-3xl bg-black/20 backdrop-blur-xl border border-white/10 shadow-xl space-y-4">
+    <h3 class="text-sm font-bold text-white flex items-center gap-2">{{ m.icon('zap','w-4 h-4 text-amber-400') }} Recomendaciones Estratégicas y Comerciales</h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {% for rec in pd.strategicRecommendations %}
+      <div class="p-4 rounded-2xl bg-white/5 border border-white/5 text-xs space-y-2">
+        <span class="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-2xs">0{{ loop.index }}</span>
+        <p class="text-slate-200 text-2xs leading-relaxed font-medium">{{ rec }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="p-6 rounded-3xl bg-gradient-to-r from-indigo-900/60 via-purple-900/50 to-indigo-950/80 backdrop-blur-2xl border border-indigo-500/30 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-6">
+    <div><h3 class="text-lg font-bold text-white">¿Deseas probar los Asistentes Generativos de DDN Travel?</h3>
+      <p class="text-xs text-indigo-200 mt-1 max-w-xl">Crea itinerarios mágicos día a día en segundos o calcula la afinidad y recomendación de paquetes según el presupuesto del cliente.</p></div>
+    <div class="flex flex-wrap gap-3 shrink-0">
+      <button onclick="openModal('modal-ai-itinerary')" class="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/15 text-xs font-bold shadow-md flex items-center gap-2">
+        {{ m.icon('compass','w-4 h-4 text-indigo-300') }} Generar Itinerario IA</button>
+      <button onclick="openModal('modal-ai-recommend')" class="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2">
+        {{ m.icon('sparkles','w-4 h-4 text-amber-300') }} Recomendador Inteligente</button>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

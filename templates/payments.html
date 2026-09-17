@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+      {{ m.icon('creditcard','w-6 h-6 text-emerald-400') }} Control de Cobros & <span class="font-bold text-emerald-400">Facturación (RF-11 / RN-03)</span>
+    </h1>
+    {% if pending_bookings %}
+    <button onclick="openModal('modal-new-payment')" class="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 flex items-center gap-2 self-start">
+      {{ m.icon('plus','w-4 h-4') }} Registrar Pago</button>
+    {% endif %}
+  </div>
+
+  <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-white/5 text-slate-400 uppercase tracking-widest text-3xs font-bold border-b border-white/5">
+          <tr><th class="p-4">Recibo N°</th><th class="p-4">Reserva Asociada</th><th class="p-4">Cliente / Pagador</th>
+            <th class="p-4">Método & Referencia</th><th class="p-4">Fecha & Hora</th><th class="p-4">Monto Abonado</th><th class="p-4 text-right">Comprobante</th></tr>
+        </thead>
+        <tbody class="divide-y divide-white/5 text-slate-300">
+          {% for p in payments %}
+          <tr class="hover:bg-white/5 transition-colors" data-searchable>
+            <td class="p-4 font-mono text-2xs text-emerald-300">{{ p.receipt_number }}</td>
+            <td class="p-4 font-semibold text-white">{{ p.booking_code }}</td>
+            <td class="p-4">{{ p.client_name }}</td>
+            <td class="p-4 text-2xs">{{ p.payment_method }}<span class="block text-slate-500 font-mono">{{ p.transaction_ref }}</span></td>
+            <td class="p-4 text-2xs whitespace-nowrap">{{ p.date }}</td>
+            <td class="p-4 font-bold text-emerald-400">${{ p.amount|usd2 }} USD</td>
+            <td class="p-4 text-right"><span class="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-2xs font-mono">{{ p.invoice_number }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

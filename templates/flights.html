@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+    {{ m.icon('plane','w-6 h-6 text-sky-400') }} Gestión de Vuelos Comerciales (RF-08)
+  </h1>
+
+  <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-white/5 text-slate-400 uppercase tracking-widest text-3xs font-bold border-b border-white/5">
+          <tr><th class="p-4">Vuelo / Aerolínea</th><th class="p-4">Ruta (Origen ➔ Destino)</th><th class="p-4">Horarios</th>
+            <th class="p-4">Clase & Asientos</th><th class="p-4">Estado</th><th class="p-4">Tarifa USD</th></tr>
+        </thead>
+        <tbody class="divide-y divide-white/5 text-slate-300">
+          {% for f in flights %}
+          <tr class="hover:bg-white/5 transition-colors" data-searchable>
+            <td class="p-4"><p class="font-bold text-white">{{ f.airline }}</p><p class="text-2xs text-slate-400 font-mono">{{ f.flight_number }}</p></td>
+            <td class="p-4">{{ f.origin }} ➔ {{ f.destination }}</td>
+            <td class="p-4 text-2xs whitespace-nowrap">{{ f.departure_time }} — {{ f.arrival_time }}</td>
+            <td class="p-4 text-2xs">{{ f.flight_class }}<span class="block text-slate-500">{{ f.seats_available }}/{{ f.total_seats }} disp.</span></td>
+            <td class="p-4"><span class="px-2.5 py-1 rounded-full text-3xs font-bold {{ 'bg-emerald-500/30 text-emerald-100 border border-emerald-400/40' if f.status=='A tiempo' else 'bg-amber-500/30 text-amber-100 border border-amber-400/40' }}">{{ f.status }}</span></td>
+            <td class="p-4 font-bold text-white">${{ f.price_usd }} USD</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

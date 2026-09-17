@@ -1,0 +1,25 @@
+# Claves y secretos
+.env
+
+# Entornos virtuales
+venv/
+.env/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Estado persistente de la demo
+state.json
+
+# Tests / tooling
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+
+# IDEs
+.idea/
+.vscode/

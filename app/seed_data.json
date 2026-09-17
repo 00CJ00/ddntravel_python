@@ -1,0 +1,1228 @@
+{
+  "initial_users": [
+    {
+      "id": "usr-admin-1",
+      "name": "Carlos Mendoza (Director General)",
+      "email": "admin@ddntravel.com",
+      "role": "admin",
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      "password_hash": "scrypt:32768:8:1$7s6REZjsnDDzCFcs$68838464fb71763dd17c6b834b0d21bb11c9fa625e9f29b569158c8f6d88683c41556e247d48f3d9554c920377b5a11143bde3421a07095b0d700e6003b563a6",
+      "department": "DirecciÃ³n Ejecutiva"
+    },
+    {
+      "id": "usr-emp-1",
+      "name": "SofÃ­a Valenzuela (Agente Senior)",
+      "email": "sofia.v@ddntravel.com",
+      "role": "employee",
+      "avatar": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
+      "password_hash": "scrypt:32768:8:1$p6Jn43yUjZOeIrf4$8ba412843c8c4ec52bb29a75dd6527177e834205198467fe952e3501932548d4553f69ffd097a33a0f9630acfbf59484f760136d7c37cee66737e64a9f4e7029",
+      "department": "Reservas & Operaciones"
+    },
+    {
+      "id": "usr-cli-1",
+      "name": "Roberto GÃ³mez (Viajero VIP)",
+      "email": "roberto.gomez@gmail.com",
+      "role": "client",
+      "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+      "password_hash": "scrypt:32768:8:1$qUmJc0aIMRTU4R7J$9e752746b3254da43d63cf49871a2a660e788c4d036bde6de33076895db206ff403ec92d2d1b501913d9800467f5afad292814f5a2bfeb864ef11e997470f847",
+      "department": "Cliente Registrado"
+    }
+  ],
+  "initial_clients": [
+    {
+      "id": "cli-001",
+      "name": "Roberto GÃ³mez",
+      "email": "roberto.gomez@gmail.com",
+      "phone": "+1 (809) 555-0142",
+      "document_id": "PAS-49102941",
+      "category": "VIP",
+      "budget_preference": "Ultra Lujo",
+      "preferred_destinations": [
+        "CancÃºn & Riviera Maya",
+        "Punta Cana",
+        "ParÃ­s & Madrid"
+      ],
+      "trips_count": 6,
+      "total_spent": 18450,
+      "registration_date": "2024-03-15",
+      "status": "Activo",
+      "notes": "Prefiere habitaciones con vista frontal al mar y traslados privados en Mercedes Benz.",
+      "passport_expiry": "2028-11-20",
+      "nationality": "RepÃºblica Dominicana"
+    },
+    {
+      "id": "cli-002",
+      "name": "Mariana Silva Torres",
+      "email": "mariana.silva@outlook.com",
+      "phone": "+52 55 4912 3388",
+      "document_id": "PAS-88120034",
+      "category": "Frecuente",
+      "budget_preference": "Premium",
+      "preferred_destinations": [
+        "Cusco & Machu Picchu",
+        "Cartagena de Indias"
+      ],
+      "trips_count": 4,
+      "total_spent": 9200,
+      "registration_date": "2024-06-10",
+      "status": "Activo",
+      "notes": "Interesada en tours gastronÃ³micos y experiencias ecoturÃ­sticas.",
+      "passport_expiry": "2027-04-14",
+      "nationality": "MÃ©xico"
+    },
+    {
+      "id": "cli-003",
+      "name": "Alejandro Restrepo",
+      "email": "alejandro.r@techgroup.co",
+      "phone": "+57 310 982 7160",
+      "document_id": "PAS-33019842",
+      "category": "Corporativo",
+      "budget_preference": "Premium",
+      "preferred_destinations": [
+        "Madrid",
+        "Miami",
+        "Buenos Aires"
+      ],
+      "trips_count": 5,
+      "total_spent": 14800,
+      "registration_date": "2024-01-22",
+      "status": "Activo",
+      "notes": "Viajes de incentivo para ejecutivos y conferencias internacionales.",
+      "passport_expiry": "2029-08-30",
+      "nationality": "Colombia"
+    },
+    {
+      "id": "cli-004",
+      "name": "LucÃ­a FernÃ¡ndez Morales",
+      "email": "lucia.fernandez@hotmail.com",
+      "phone": "+34 612 345 678",
+      "document_id": "PAS-91024881",
+      "category": "EstÃ¡ndar",
+      "budget_preference": "Medio",
+      "preferred_destinations": [
+        "Punta Cana",
+        "Santorini"
+      ],
+      "trips_count": 2,
+      "total_spent": 3600,
+      "registration_date": "2025-02-04",
+      "status": "Activo",
+      "notes": "Viaja en familia (2 adultos y 1 niÃ±o).",
+      "passport_expiry": "2026-10-18",
+      "nationality": "EspaÃ±a"
+    },
+    {
+      "id": "cli-005",
+      "name": "Esteban Paredes Ruiz",
+      "email": "esteban.paredes@gmail.com",
+      "phone": "+56 9 8765 4321",
+      "document_id": "PAS-77621190",
+      "category": "Frecuente",
+      "budget_preference": "Premium",
+      "preferred_destinations": [
+        "San Pedro de Atacama",
+        "CancÃºn",
+        "RÃ­o de Janeiro"
+      ],
+      "trips_count": 3,
+      "total_spent": 7500,
+      "registration_date": "2024-09-12",
+      "status": "En Seguimiento",
+      "notes": "Cotizando paquete de luna de miel para finales de aÃ±o.",
+      "passport_expiry": "2030-01-15",
+      "nationality": "Chile"
+    }
+  ],
+  "initial_destinations": [
+    {
+      "id": "dest-01",
+      "name": "Punta Cana & BÃ¡varo",
+      "country": "RepÃºblica Dominicana",
+      "region": "Caribe",
+      "cover_image": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&auto=format&fit=crop&q=80",
+      "description": "Playas kilomÃ©tricas de arena blanca como talco, palmeras de coco y resorts todo incluido de estÃ¡ndar internacional.",
+      "weather_type": "Tropical",
+      "best_season": "Diciembre a Mayo",
+      "high_season_months": [
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Julio",
+        "Diciembre"
+      ],
+      "popular_attractions": [
+        "Isla Saona",
+        "Hoyo Azul & Scape Park",
+        "Playa BÃ¡varo",
+        "CatamarÃ¡n en arrecifes"
+      ],
+      "base_price_usd": 890,
+      "status": "Destacado",
+      "rating": 4.9
+    },
+    {
+      "id": "dest-02",
+      "name": "CancÃºn & Riviera Maya",
+      "country": "MÃ©xico",
+      "region": "Caribe",
+      "cover_image": "https://images.unsplash.com/photo-1518638150340-f706e86654de?w=800&auto=format&fit=crop&q=80",
+      "description": "La combinaciÃ³n perfecta de cultura maya ancestral, cenotes sagrados, vida nocturna vibrante y mar turquesa.",
+      "weather_type": "Tropical",
+      "best_season": "Noviembre a Abril",
+      "high_season_months": [
+        "Marzo",
+        "Abril",
+        "Julio",
+        "Agosto",
+        "Diciembre"
+      ],
+      "popular_attractions": [
+        "ChichÃ©n ItzÃ¡",
+        "Xcaret Eco-Parque",
+        "Tulum",
+        "Cenote Dos Ojos"
+      ],
+      "base_price_usd": 950,
+      "status": "Destacado",
+      "rating": 4.8
+    },
+    {
+      "id": "dest-03",
+      "name": "Cusco & Machu Picchu",
+      "country": "PerÃº",
+      "region": "SudamÃ©rica",
+      "cover_image": "https://images.unsplash.com/photo-1526392060635-9d6019884377?w=800&auto=format&fit=crop&q=80",
+      "description": "Capital del Imperio Inca en los Andes peruanos, con una de las 7 Maravillas del Mundo Moderno y gastronomÃ­a de clase mundial.",
+      "weather_type": "MontaÃ±oso",
+      "best_season": "Mayo a Octubre",
+      "high_season_months": [
+        "Junio",
+        "Julio",
+        "Agosto"
+      ],
+      "popular_attractions": [
+        "Santuario HistÃ³rico Machu Picchu",
+        "Valle Sagrado",
+        "MontaÃ±a de 7 Colores",
+        "Barrio San Blas"
+      ],
+      "base_price_usd": 1120,
+      "status": "Destacado",
+      "rating": 4.95
+    },
+    {
+      "id": "dest-04",
+      "name": "Madrid & ParÃ­s RomÃ¡ntico",
+      "country": "EspaÃ±a & Francia",
+      "region": "Europa",
+      "cover_image": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&auto=format&fit=crop&q=80",
+      "description": "La elegancia europea: museos universales, la Torre Eiffel, tapas castizas y paseos por el RÃ­o Sena en tren de alta velocidad.",
+      "weather_type": "Templado",
+      "best_season": "Abril a Junio & Septiembre a Noviembre",
+      "high_season_months": [
+        "Mayo",
+        "Junio",
+        "Julio",
+        "Septiembre"
+      ],
+      "popular_attractions": [
+        "Torre Eiffel & Louvre",
+        "Museo del Prado & Palacio Real",
+        "Crucero Sena",
+        "Toledo Monumental"
+      ],
+      "base_price_usd": 1980,
+      "status": "Destacado",
+      "rating": 4.9
+    },
+    {
+      "id": "dest-05",
+      "name": "Cartagena de Indias",
+      "country": "Colombia",
+      "region": "SudamÃ©rica",
+      "cover_image": "https://images.unsplash.com/photo-1583531352515-8884af319dc1?w=800&auto=format&fit=crop&q=80",
+      "description": "Ciudad amurallada colonial con balcones florecidos, atardeceres mÃ¡gicos sobre el Caribe e islas del Rosario.",
+      "weather_type": "Tropical",
+      "best_season": "Diciembre a Abril",
+      "high_season_months": [
+        "Diciembre",
+        "Enero",
+        "Julio"
+      ],
+      "popular_attractions": [
+        "Castillo San Felipe",
+        "Ciudad Amurallada",
+        "Islas del Rosario",
+        "GetsemanÃ­ bohemio"
+      ],
+      "base_price_usd": 750,
+      "status": "Activo",
+      "rating": 4.7
+    },
+    {
+      "id": "dest-06",
+      "name": "Santorini & Atenas",
+      "country": "Grecia",
+      "region": "Europa",
+      "cover_image": "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?w=800&auto=format&fit=crop&q=80",
+      "description": "CÃºpulas azules sobre el mar Egeo, acantilados volcÃ¡nicos, la AcrÃ³polis milenaria y atardeceres legendarios en Oia.",
+      "weather_type": "MediterrÃ¡neo",
+      "best_season": "Mayo a Octubre",
+      "high_season_months": [
+        "Julio",
+        "Agosto",
+        "Septiembre"
+      ],
+      "popular_attractions": [
+        "Puesta de sol en Oia",
+        "AcrÃ³polis de Atenas",
+        "Playa Roja de Santorini",
+        "Cata de vinos Asyrtiko"
+      ],
+      "base_price_usd": 2450,
+      "status": "Activo",
+      "rating": 4.92
+    },
+    {
+      "id": "dest-07",
+      "name": "Puerto Plata & Sosúa",
+      "country": "República Dominicana",
+      "region": "Caribe",
+      "cover_image": "https://images.unsplash.com/photo-1569164013523-3c7d1785d32f?w=800&auto=format&fit=crop&q=80",
+      "description": "Colonial charm, blue-water beaches, and the iconic Fort San Felipe. Ideal for history lovers and beach relax.",
+      "weather_type": "Tropical",
+      "best_season": "Noviembre a Abril",
+      "high_season_months": [
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Abril",
+        "Diciembre"
+      ],
+      "popular_attractions": [
+        "Fort San Felipe",
+        "Playa Dorada",
+        "El Malecon",
+        "Cayo Cascara"
+      ],
+      "base_price_usd": 720
+    },
+    {
+      "id": "dest-08",
+      "name": "Samaná & Las Terrenas",
+      "country": "República Dominicana",
+      "region": "Caribe",
+      "cover_image": "https://images.unsplash.com/photo-1582739104703-6e5f0de7f270?w=800&auto=format&fit=crop&q=80",
+      "description": "Prístinas playas de arena negra, bosques de palmas y la espectacular Bahía de Samaná. Paraíso de las ballenas jorobadas (época).",
+      "weather_type": "Tropical",
+      "best_season": "Enero a Marzo",
+      "high_season_months": [
+        "Enero",
+        "Febrero",
+        "Marzo"
+      ],
+      "popular_attractions": [
+        "Salto del Limón",
+        "Bahía de Samaná",
+        "Isla Cayo Levantado",
+        "Los Haïtises"
+      ],
+      "base_price_usd": 850
+    },
+    {
+      "id": "dest-09",
+      "name": "Santo Domingo (Zona Colonial)",
+      "country": "República Dominicana",
+      "region": "Caribe",
+      "cover_image": "https://images.unsplash.com/photo-1580360506503-8c4b66b6d83f?w=800&auto=format&fit=crop&q=80",
+      "description": "Patrimonio UNESCO: calles empedradas, arquitectura española del XVI, Catedral Primada de América y vibrante vida urbana.",
+      "weather_type": "Tropical",
+      "best_season": "Diciembre a Abril",
+      "high_season_months": [
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Abril"
+      ],
+      "popular_attractions": [
+        "Catedral Primada",
+        "Fortaleza Ozama",
+        "Panteón de la Patria",
+        "Malecon"
+      ],
+      "base_price_usd": 680
+    }
+  ],
+  "initial_packages": [
+    {
+      "id": "pkg-01",
+      "title": "Punta Cana Royal Luxury All-Inclusive",
+      "destination_id": "dest-01",
+      "destination_name": "Punta Cana & BÃ¡varo",
+      "duration_days": 5,
+      "duration_nights": 4,
+      "price_usd": 1250,
+      "original_price_usd": 1490,
+      "available_slots": 14,
+      "total_slots": 20,
+      "max_capacity": 20,
+      "image": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&auto=format&fit=crop&q=80",
+      "image_url": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&auto=format&fit=crop&q=80",
+      "gallery": [
+        "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&auto=format&fit=crop&q=80"
+      ],
+      "category": "Lujo",
+      "featured": true,
+      "inclusions": {
+        "hotel": true,
+        "flight": true,
+        "flights": true,
+        "transport": true,
+        "meals": true,
+        "tour_guide": true,
+        "insurance": true
+      },
+      "itinerary_summary": [
+        "DÃ­a 1: Vuelo directo, traslado VIP y check-in en Resort 5 Estrellas.",
+        "DÃ­a 2: ExcursiÃ³n en CatamarÃ¡n de Lujo a Isla Saona con almuerzo langosta.",
+        "DÃ­a 3: DÃ­a de playa, spa y paseo a caballo al atardecer.",
+        "DÃ­a 4: Aventura en buggies por senderos tropicales y cenote.",
+        "DÃ­a 5: Desayuno buffet y traslado privado al aeropuerto."
+      ],
+      "description": "Experiencia prÃ©mium en resort frente al mar con servicio de mayordomo, bebidas prÃ©mium ilimitadas y excursiÃ³n exclusiva a Isla Saona.",
+      "departure_dates": [
+        "2026-09-05",
+        "2026-09-20",
+        "2026-10-10",
+        "2026-11-15"
+      ]
+    },
+    {
+      "id": "pkg-02",
+      "title": "CancÃºn & Joyas Mayas Inolvidable",
+      "destination_id": "dest-02",
+      "destination_name": "CancÃºn & Riviera Maya",
+      "duration_days": 6,
+      "duration_nights": 5,
+      "price_usd": 1390,
+      "original_price_usd": 1650,
+      "available_slots": 8,
+      "total_slots": 25,
+      "max_capacity": 25,
+      "image": "https://images.unsplash.com/photo-1518638150340-f706e86654de?w=800&auto=format&fit=crop&q=80",
+      "image_url": "https://images.unsplash.com/photo-1518638150340-f706e86654de?w=800&auto=format&fit=crop&q=80",
+      "gallery": [
+        "https://images.unsplash.com/photo-1518638150340-f706e86654de?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800&auto=format&fit=crop&q=80"
+      ],
+      "category": "Cultural",
+      "featured": true,
+      "inclusions": {
+        "hotel": true,
+        "flight": true,
+        "flights": true,
+        "transport": true,
+        "meals": true,
+        "tour_guide": true,
+        "insurance": true
+      },
+      "itinerary_summary": [
+        "DÃ­a 1: Llegada a CancÃºn y cÃ³ctel de bienvenida en la Zona Hotelera.",
+        "DÃ­a 2: Tour privado a ChichÃ©n ItzÃ¡ con guÃ­a arqueÃ³logo y nado en Cenote Ik Kil.",
+        "DÃ­a 3: DÃ­a completo en parque ecolÃ³gico Xcaret con espectÃ¡culo de noche.",
+        "DÃ­a 4: Visita a las ruinas de Tulum con vista al mar y playa ParaÃ­so.",
+        "DÃ­a 5: DÃ­a libre para compras o paseo en ferry a Isla Mujeres.",
+        "DÃ­a 6: Despedida y traslado al aeropuerto internacional."
+      ],
+      "description": "Descubre las maravillas de la civilizaciÃ³n maya combinadas con la comodidad y playas cristalinas de CancÃºn.",
+      "departure_dates": [
+        "2026-09-12",
+        "2026-10-04",
+        "2026-11-01",
+        "2026-12-05"
+      ]
+    },
+    {
+      "id": "pkg-03",
+      "title": "ExpediciÃ³n MÃ­stica Cusco & Machu Picchu",
+      "destination_id": "dest-03",
+      "destination_name": "Cusco & Machu Picchu",
+      "duration_days": 5,
+      "duration_nights": 4,
+      "price_usd": 1180,
+      "original_price_usd": 1350,
+      "available_slots": 6,
+      "total_slots": 16,
+      "max_capacity": 16,
+      "image": "https://images.unsplash.com/photo-1526392060635-9d6019884377?w=800&auto=format&fit=crop&q=80",
+      "image_url": "https://images.unsplash.com/photo-1526392060635-9d6019884377?w=800&auto=format&fit=crop&q=80",
+      "gallery": [
+        "https://images.unsplash.com/photo-1526392060635-9d6019884377?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1587595431973-160d0d94add1?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=800&auto=format&fit=crop&q=80"
+      ],
+      "category": "Aventura",
+      "featured": true,
+      "inclusions": {
+        "hotel": true,
+        "flight": false,
+        "flights": false,
+        "transport": true,
+        "meals": true,
+        "tour_guide": true,
+        "insurance": true
+      },
+      "itinerary_summary": [
+        "DÃ­a 1: Llegada a Cusco, mate de coca y tour peatonal por el centro histÃ³rico.",
+        "DÃ­a 2: Recorrido por el Valle Sagrado (Pisac y Ollantaytambo) con buffet andino.",
+        "DÃ­a 3: Tren panorÃ¡mico Vistadome hacia Aguas Calientes y ascenso a Machu Picchu.",
+        "DÃ­a 4: Trekking guiado a la MontaÃ±a de 7 Colores (Vinicunca) o laguna Humantay.",
+        "DÃ­a 5: MaÃ±ana de compras artesanales y traslado al aeropuerto de Cusco."
+      ],
+      "description": "Una travesÃ­a espiritual y cultural por los Andes peruanos con boleto de tren panorÃ¡mico y entradas preferenciales.",
+      "departure_dates": [
+        "2026-09-18",
+        "2026-10-15",
+        "2026-11-20"
+      ]
+    },
+    {
+      "id": "pkg-04",
+      "title": "ParÃ­s & Madrid de Gala en Tren de Alta Velocidad",
+      "destination_id": "dest-04",
+      "destination_name": "Madrid & ParÃ­s RomÃ¡ntico",
+      "duration_days": 8,
+      "duration_nights": 7,
+      "price_usd": 2390,
+      "original_price_usd": 2750,
+      "available_slots": 10,
+      "total_slots": 18,
+      "max_capacity": 18,
+      "image": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&auto=format&fit=crop&q=80",
+      "image_url": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&auto=format&fit=crop&q=80",
+      "gallery": [
+        "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1568084680786-a84f91d1153c?w=800&auto=format&fit=crop&q=80"
+      ],
+      "category": "Cultural",
+      "featured": false,
+      "inclusions": {
+        "hotel": true,
+        "flight": true,
+        "flights": true,
+        "transport": true,
+        "meals": true,
+        "tour_guide": true,
+        "insurance": true
+      },
+      "itinerary_summary": [
+        "DÃ­a 1: Vuelo intercontinental y llegada a Madrid.",
+        "DÃ­a 2: Tour guiado: Puerta del Sol, Gran VÃ­a y Museo del Prado.",
+        "DÃ­a 3: ExcursiÃ³n a Toledo ciudad de las 3 culturas.",
+        "DÃ­a 4: Vuelo o tren de alta velocidad a ParÃ­s y cena crucero por el Sena.",
+        "DÃ­a 5: Subida a la Torre Eiffel y recorrido por Montmartre.",
+        "DÃ­a 6: Palacio de Versalles con jardines reales.",
+        "DÃ­a 7: DÃ­a libre de compras en GalerÃ­as Lafayette.",
+        "DÃ­a 8: Traslado al aeropuerto Charles de Gaulle."
+      ],
+      "description": "El circuito clÃ¡sico europeo con hoteles 4 estrellas superior cÃ©ntricos y traslados privados.",
+      "departure_dates": [
+        "2026-10-02",
+        "2026-11-06",
+        "2026-12-10"
+      ]
+    },
+    {
+      "id": "pkg-05",
+      "title": "Cartagena Caribe MÃ¡gico & Islas del Rosario",
+      "destination_id": "dest-05",
+      "destination_name": "Cartagena de Indias",
+      "duration_days": 4,
+      "duration_nights": 3,
+      "price_usd": 850,
+      "original_price_usd": 990,
+      "available_slots": 15,
+      "total_slots": 20,
+      "max_capacity": 20,
+      "image": "https://images.unsplash.com/photo-1583531352515-8884af319dc1?w=800&auto=format&fit=crop&q=80",
+      "image_url": "https://images.unsplash.com/photo-1583531352515-8884af319dc1?w=800&auto=format&fit=crop&q=80",
+      "gallery": [
+        "https://images.unsplash.com/photo-1583531352515-8884af319dc1?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80"
+      ],
+      "category": "Playa",
+      "featured": false,
+      "inclusions": {
+        "hotel": true,
+        "flight": true,
+        "flights": true,
+        "transport": true,
+        "meals": true,
+        "tour_guide": true,
+        "insurance": true
+      },
+      "itinerary_summary": [
+        "DÃ­a 1: Bienvenida en el aeropuerto y paseo en chiva rumbera por Bocagrande.",
+        "DÃ­a 2: PasadÃ­a en yate privado por las Islas del Rosario y playa BarÃº.",
+        "DÃ­a 3: Tour a pie por la Ciudad Amurallada y cata de cafÃ© colombiano.",
+        "DÃ­a 4: Desayuno tropical y retorno."
+      ],
+      "description": "SumÃ©rgete en el sabor, la mÃºsica y la historia caribeÃ±a de Cartagena de Indias.",
+      "departure_dates": [
+        "2026-09-08",
+        "2026-09-22",
+        "2026-10-18"
+      ]
+    },
+    {
+      "id": "pkg-06",
+      "title": "Santorini & Atenas: Odisea en el Mar Egeo",
+      "destination_id": "dest-06",
+      "destination_name": "Santorini & Atenas",
+      "duration_days": 7,
+      "duration_nights": 6,
+      "price_usd": 2450,
+      "original_price_usd": 2850,
+      "available_slots": 9,
+      "total_slots": 15,
+      "max_capacity": 15,
+      "image": "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?w=800&auto=format&fit=crop&q=80",
+      "image_url": "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?w=800&auto=format&fit=crop&q=80",
+      "gallery": [
+        "https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1533105079780-92b9be482077?w=800&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&auto=format&fit=crop&q=80"
+      ],
+      "category": "Lujo",
+      "featured": true,
+      "inclusions": {
+        "hotel": true,
+        "flight": true,
+        "flights": true,
+        "transport": true,
+        "meals": true,
+        "tour_guide": true,
+        "insurance": true
+      },
+      "itinerary_summary": [
+        "DÃ­a 1: Vuelo a Atenas y bienvenida con vista a la AcrÃ³polis iluminada.",
+        "DÃ­a 2: Recorrido guiado por el PartenÃ³n, Plaka y Museo de la AcrÃ³polis.",
+        "DÃ­a 3: Ferry de alta velocidad a Santorini y check-in en villa sobre el acantilado.",
+        "DÃ­a 4: Crucero en catamarÃ¡n por la caldera volcÃ¡nica y aguas termales.",
+        "DÃ­a 5: Cata privada de vinos volcÃ¡nicos y famosa puesta de sol en Oia.",
+        "DÃ­a 6: DÃ­a libre para compras en Fira o playa de arena negra Kamari.",
+        "DÃ­a 7: Traslado al aeropuerto y vuelo de regreso."
+      ],
+      "description": "Villas blancas con cÃºpulas azules sobre el mar Egeo, ruinas mitolÃ³gicas y atardeceres mÃ¡gicos en Grecia.",
+      "departure_dates": [
+        "2026-09-15",
+        "2026-10-05",
+        "2026-11-12"
+      ]
+    }
+  ],
+  "initial_hotels": [
+    {
+      "id": "htl-01",
+      "name": "Secrets Cap Cana Resort & Spa (5â˜…)",
+      "destination_id": "dest-01",
+      "destination_name": "Punta Cana & BÃ¡varo",
+      "stars": 5,
+      "address": "Playa Juanillo, Cap Cana, RepÃºblica Dominicana",
+      "rating": 4.9,
+      "image": "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&auto=format&fit=crop&q=80",
+      "contact_phone": "+1 (809) 469-7545",
+      "amenities": [
+        "Piscina Infinity",
+        "Acceso a Playa Privada",
+        "Spa de Hidroterapia",
+        "8 Restaurantes Gourmet",
+        "WiFi Alta Velocidad",
+        "Servicio a la habitaciÃ³n 24/7"
+      ],
+      "room_types": [
+        {
+          "type": "Junior Suite Vista al Mar",
+          "price_per_night": 320,
+          "available": 8
+        },
+        {
+          "type": "Master Suite Swim-Out",
+          "price_per_night": 480,
+          "available": 3
+        },
+        {
+          "type": "Villa Presidencial Frente al OcÃ©ano",
+          "price_per_night": 950,
+          "available": 1
+        }
+      ]
+    },
+    {
+      "id": "htl-02",
+      "name": "Grand Fiesta Americana Coral Beach CancÃºn (5â˜…)",
+      "destination_id": "dest-02",
+      "destination_name": "CancÃºn & Riviera Maya",
+      "stars": 5,
+      "address": "Blvd. Kukulcan km 9.5, Zona Hotelera, CancÃºn",
+      "rating": 4.85,
+      "image": "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800&auto=format&fit=crop&q=80",
+      "contact_phone": "+52 998 881 3200",
+      "amenities": [
+        "Spa Gem Spa",
+        "Piscina con Bar HÃºmedo",
+        "Club de NiÃ±os",
+        "Canchas de Tenis",
+        "Restaurante Le Basilic"
+      ],
+      "room_types": [
+        {
+          "type": "Ocean View King Suite",
+          "price_per_night": 280,
+          "available": 12
+        },
+        {
+          "type": "Infinite Club Suite",
+          "price_per_night": 410,
+          "available": 5
+        }
+      ]
+    },
+    {
+      "id": "htl-03",
+      "name": "Palacio del Inka, A Luxury Collection Hotel (5â˜…)",
+      "destination_id": "dest-03",
+      "destination_name": "Cusco & Machu Picchu",
+      "stars": 5,
+      "address": "Plazoleta Santo Domingo 259, Cusco",
+      "rating": 4.95,
+      "image": "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=800&auto=format&fit=crop&q=80",
+      "contact_phone": "+51 84 601300",
+      "amenities": [
+        "OxÃ­geno en habitaciones",
+        "Muros Incas originales",
+        "Spa TerapÃ©utico",
+        "Restaurante Inti Raymi",
+        "Cursos de Pisco Sour"
+      ],
+      "room_types": [
+        {
+          "type": "Deluxe Colonial con OxÃ­geno",
+          "price_per_night": 240,
+          "available": 6
+        },
+        {
+          "type": "Suite Palacio Inca",
+          "price_per_night": 390,
+          "available": 2
+        }
+      ]
+    },
+    {
+      "id": "htl-04",
+      "name": "Hotel Regina Louvre ParÃ­s (4â˜… Superior)",
+      "destination_id": "dest-04",
+      "destination_name": "Madrid & ParÃ­s RomÃ¡ntico",
+      "stars": 4,
+      "address": "2 Place des Pyramides, 75001 ParÃ­s, Francia",
+      "rating": 4.8,
+      "image": "https://images.unsplash.com/photo-1568084680786-a84f91d1153c?w=800&auto=format&fit=crop&q=80",
+      "contact_phone": "+33 1 42 60 31 10",
+      "amenities": [
+        "Frente al Museo del Louvre",
+        "Vista a la Torre Eiffel",
+        "Bar InglÃ©s HistÃ³rico",
+        "Desayuno Buffet Parisino"
+      ],
+      "room_types": [
+        {
+          "type": "HabitaciÃ³n ClÃ¡sica Parisina",
+          "price_per_night": 340,
+          "available": 4
+        },
+        {
+          "type": "Suite Vista JardÃ­n de las TullerÃ­as",
+          "price_per_night": 580,
+          "available": 2
+        }
+      ]
+    }
+  ],
+  "initial_flights": [
+    {
+      "id": "flt-01",
+      "airline": "Arajet Airlines",
+      "flight_number": "DM-302",
+      "origin": "Santo Domingo (SDQ)",
+      "destination": "CancÃºn (CUN)",
+      "departure_time": "08:30 AM",
+      "arrival_time": "11:15 AM",
+      "price_usd": 340,
+      "seats_available": 24,
+      "total_seats": 180,
+      "flight_class": "EconÃ³mica",
+      "status": "A tiempo",
+      "baggage_allowance": "1 Maleta 23kg + Equipaje de Mano",
+      "image": "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "flt-02",
+      "airline": "LATAM Airlines",
+      "flight_number": "LA-2410",
+      "origin": "Lima (LIM)",
+      "destination": "Cusco (CUZ)",
+      "departure_time": "06:45 AM",
+      "arrival_time": "08:05 AM",
+      "price_usd": 190,
+      "seats_available": 15,
+      "total_seats": 160,
+      "flight_class": "EconÃ³mica",
+      "status": "A tiempo",
+      "baggage_allowance": "Equipaje de Mano 10kg",
+      "image": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=800&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "flt-03",
+      "airline": "Iberia LÃ­neas AÃ©reas",
+      "flight_number": "IB-6500",
+      "origin": "Santo Domingo (SDQ)",
+      "destination": "Madrid Barajas (MAD)",
+      "departure_time": "18:15 PM",
+      "arrival_time": "07:45 AM (+1)",
+      "price_usd": 890,
+      "seats_available": 8,
+      "total_seats": 290,
+      "flight_class": "Ejecutiva",
+      "status": "Programado",
+      "baggage_allowance": "2 Maletas 32kg + Asiento Cama",
+      "image": "https://images.unsplash.com/photo-1520437358207-323b43b50729?w=800&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "flt-04",
+      "airline": "Air France",
+      "flight_number": "AF-451",
+      "origin": "Madrid (MAD)",
+      "destination": "ParÃ­s Charles de Gaulle (CDG)",
+      "departure_time": "14:20 PM",
+      "arrival_time": "16:30 PM",
+      "price_usd": 160,
+      "seats_available": 32,
+      "total_seats": 150,
+      "flight_class": "EconÃ³mica",
+      "status": "A tiempo",
+      "baggage_allowance": "1 Maleta 23kg",
+      "image": "https://images.unsplash.com/photo-1506015391300-4802dc74de2e?w=800&auto=format&fit=crop&q=80"
+    }
+  ],
+  "initial_transports": [
+    {
+      "id": "trn-01",
+      "type": "Bus TurÃ­stico",
+      "route": "Aeropuerto Punta Cana â‡„ Hoteles BÃ¡varo & Uvero Alto",
+      "vehicle_model": "Mercedes-Benz Tourismo 2024 (54 Pasajeros)",
+      "capacity": 54,
+      "available_seats": 38,
+      "driver_name": "Manuel JimÃ©nez",
+      "price_usd": 25,
+      "status": "Operativo",
+      "amenities": [
+        "Aire Acondicionado",
+        "WiFi a Bordo",
+        "Pantallas HD",
+        "Nevera con agua"
+      ],
+      "image": "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "trn-02",
+      "type": "Van Ejecutiva",
+      "route": "Circuito ArqueolÃ³gico Riviera Maya (CancÃºn - Tulum - ChichÃ©n)",
+      "vehicle_model": "Toyota HiAce VIP Executive (12 Pasajeros)",
+      "capacity": 12,
+      "available_seats": 6,
+      "driver_name": "RaÃºl Pech",
+      "price_usd": 65,
+      "status": "Operativo",
+      "amenities": [
+        "Asientos de cuero reclinables",
+        "Cargadores USB individuales",
+        "GuÃ­a bilingÃ¼e"
+      ],
+      "image": "https://images.unsplash.com/photo-1559297434-fae8a1916a79?w=800&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "trn-03",
+      "type": "Tren PanorÃ¡mico",
+      "route": "Ollantaytambo â‡„ Machu Picchu Pueblo (Aguas Calientes)",
+      "vehicle_model": "Inca Rail 360Â° Panoramic Train",
+      "capacity": 80,
+      "available_seats": 22,
+      "driver_name": "CompaÃ±Ã­a Ferroviaria Andina",
+      "price_usd": 95,
+      "status": "Operativo",
+      "amenities": [
+        "Ventanales panorÃ¡micos y techo de cristal",
+        "Snack andino orgÃ¡nico",
+        "MÃºsica en vivo"
+      ],
+      "image": "https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=800&auto=format&fit=crop&q=80"
+    },
+    {
+      "id": "trn-04",
+      "type": "Traslado Privado",
+      "route": "ParÃ­s Aeropuerto CDG â‡„ Hoteles Centro ParÃ­s",
+      "vehicle_model": "Mercedes-Benz E-Class Sedan",
+      "capacity": 3,
+      "available_seats": 3,
+      "driver_name": "Jean-Luc Dubois",
+      "price_usd": 110,
+      "status": "Operativo",
+      "amenities": [
+        "Chofer con traje",
+        "Agua Evian de cortesÃ­a",
+        "Puntualidad garantizada"
+      ],
+      "image": "https://images.unsplash.com/photo-1549399542-7e3f8b79c341?w=800&auto=format&fit=crop&q=80"
+    }
+  ],
+  "initial_activities": [
+    {
+      "id": "act-01",
+      "title": "ExcursiÃ³n CatamarÃ¡n VIP a Isla Saona & Piscina Natural",
+      "destination_id": "dest-01",
+      "destination_name": "Punta Cana & BÃ¡varo",
+      "duration_hours": 8,
+      "price_usd": 99,
+      "includes_guide": true,
+      "difficulty": "FÃ¡cil",
+      "image": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&auto=format&fit=crop&q=80",
+      "description": "Navega en catamarÃ¡n con barra libre, mÃºsica caribeÃ±a, parada en el banco de estrellas de mar y almuerzo buffet en playa virgen.",
+      "category": "AcuÃ¡tico & Playa",
+      "schedule": "Diario 08:00 AM - 04:30 PM",
+      "includes": [
+        "Barra Libre a Bordo",
+        "Almuerzo Buffet Criollo",
+        "Equipo de Snorkel",
+        "GuÃ­a BilingÃ¼e",
+        "Traslado desde el Hotel"
+      ]
+    },
+    {
+      "id": "act-02",
+      "title": "Entrada y Tour Guiado ChichÃ©n ItzÃ¡ + Cenote Sagrado",
+      "destination_id": "dest-02",
+      "destination_name": "CancÃºn & Riviera Maya",
+      "duration_hours": 10,
+      "price_usd": 125,
+      "includes_guide": true,
+      "difficulty": "Moderado",
+      "image": "https://images.unsplash.com/photo-1518638150340-f706e86654de?w=800&auto=format&fit=crop&q=80",
+      "description": "Acceso prioritario a la PirÃ¡mide de KukulkÃ¡n con arqueÃ³logo certificado, comida yucateca y refrescante nado subterrÃ¡neo.",
+      "category": "Cultura & Aventura",
+      "schedule": "Martes, Jueves y SÃ¡bados 07:00 AM",
+      "includes": [
+        "Acceso VIP sin Filas",
+        "ArqueÃ³logo Certificado",
+        "Comida Buffet Regional",
+        "Chaleco Salvavidas en Cenote"
+      ]
+    },
+    {
+      "id": "act-03",
+      "title": "Cena Crucero por el RÃ­o Sena & Subida a Torre Eiffel",
+      "destination_id": "dest-04",
+      "destination_name": "Madrid & ParÃ­s RomÃ¡ntico",
+      "duration_hours": 4,
+      "price_usd": 180,
+      "includes_guide": true,
+      "difficulty": "FÃ¡cil",
+      "image": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&auto=format&fit=crop&q=80",
+      "description": "GastronomÃ­a francesa de 3 tiempos con champÃ¡n navegando junto a monumentos iluminados y acceso a la 2da planta de la Torre.",
+      "category": "Romance & GastronomÃ­a",
+      "schedule": "Noches 19:30 PM",
+      "includes": [
+        "Cena Gourmet 3 Tiempos",
+        "Copa de ChampÃ¡n FrancÃ©s",
+        "Boleto 2do Nivel Torre Eiffel",
+        "AudioguÃ­a MultilingÃ¼e"
+      ]
+    }
+  ],
+  "initial_bookings": [
+    {
+      "id": "bkg-101",
+      "booking_code": "DDN-2026-881",
+      "client_id": "cli-001",
+      "client_name": "Roberto GÃ³mez",
+      "client_email": "roberto.gomez@gmail.com",
+      "package_id": "pkg-01",
+      "package_name": "Punta Cana Royal Luxury All-Inclusive",
+      "destination_name": "Punta Cana & BÃ¡varo",
+      "departure_date": "2026-09-20",
+      "return_date": "2026-09-25",
+      "travelers": 2,
+      "passengers": [
+        {
+          "full_name": "Roberto GÃ³mez",
+          "document": "PAS-49102941",
+          "age": 42,
+          "phone": "+1 (809) 555-0142"
+        },
+        {
+          "full_name": "Carla Morales de GÃ³mez",
+          "document": "PAS-49102942",
+          "age": 39
+        }
+      ],
+      "hotel_id": "htl-01",
+      "hotel_name": "Secrets Cap Cana Resort & Spa",
+      "flight_id": "flt-01",
+      "flight_number": "DM-302",
+      "total_price": 2500,
+      "amount_paid": 2500,
+      "payment_status": "Pagado",
+      "status": "Confirmada",
+      "created_at": "2026-08-01",
+      "notes": "Aniversario de bodas. Solicitaron botella de champaÃ±a de bienvenida en la habitaciÃ³n."
+    },
+    {
+      "id": "bkg-102",
+      "booking_code": "DDN-2026-882",
+      "client_id": "cli-002",
+      "client_name": "Mariana Silva Torres",
+      "client_email": "mariana.silva@outlook.com",
+      "package_id": "pkg-03",
+      "package_name": "ExpediciÃ³n MÃ­stica Cusco & Machu Picchu",
+      "destination_name": "Cusco & Machu Picchu",
+      "departure_date": "2026-10-15",
+      "return_date": "2026-10-20",
+      "travelers": 1,
+      "passengers": [
+        {
+          "full_name": "Mariana Silva Torres",
+          "document": "PAS-88120034",
+          "age": 29,
+          "phone": "+52 55 4912 3388"
+        }
+      ],
+      "hotel_id": "htl-03",
+      "hotel_name": "Palacio del Inka, Cusco",
+      "total_price": 1180,
+      "amount_paid": 600,
+      "payment_status": "Parcial",
+      "status": "Confirmada",
+      "created_at": "2026-08-08",
+      "notes": "Requiere dieta vegetariana para los tours con almuerzo incluido."
+    },
+    {
+      "id": "bkg-103",
+      "booking_code": "DDN-2026-883",
+      "client_id": "cli-003",
+      "client_name": "Alejandro Restrepo",
+      "client_email": "alejandro.r@techgroup.co",
+      "package_id": "pkg-04",
+      "package_name": "ParÃ­s & Madrid de Gala en Tren de Alta Velocidad",
+      "destination_name": "Madrid & ParÃ­s RomÃ¡ntico",
+      "departure_date": "2026-11-06",
+      "return_date": "2026-11-14",
+      "travelers": 2,
+      "passengers": [
+        {
+          "full_name": "Alejandro Restrepo",
+          "document": "PAS-33019842",
+          "age": 48,
+          "phone": "+57 310 982 7160"
+        },
+        {
+          "full_name": "Catalina VÃ©lez",
+          "document": "PAS-33019843",
+          "age": 45
+        }
+      ],
+      "hotel_id": "htl-04",
+      "hotel_name": "Hotel Regina Louvre ParÃ­s",
+      "flight_id": "flt-03",
+      "flight_number": "IB-6500",
+      "total_price": 4780,
+      "amount_paid": 0,
+      "payment_status": "Pendiente",
+      "status": "Pendiente",
+      "created_at": "2026-08-16",
+      "notes": "Presupuesto empresarial aprobado, pendiente de orden de compra formal."
+    }
+  ],
+  "initial_payments": [
+    {
+      "id": "pay-001",
+      "receipt_number": "REC-2026-0914",
+      "booking_id": "bkg-101",
+      "booking_code": "DDN-2026-881",
+      "client_name": "Roberto GÃ³mez",
+      "amount": 2500,
+      "payment_method": "Tarjeta de CrÃ©dito",
+      "transaction_ref": "AUTH_VISA_994102",
+      "status": "Completado",
+      "date": "2026-08-01 14:32",
+      "card_last4": "4192",
+      "invoice_number": "FAC-DDN-00452"
+    },
+    {
+      "id": "pay-002",
+      "receipt_number": "REC-2026-0915",
+      "booking_id": "bkg-102",
+      "booking_code": "DDN-2026-882",
+      "client_name": "Mariana Silva Torres",
+      "amount": 600,
+      "payment_method": "Transferencia Bancaria",
+      "transaction_ref": "TRANSF_BANAMEX_55102",
+      "status": "Completado",
+      "date": "2026-08-08 10:15",
+      "invoice_number": "FAC-DDN-00453"
+    }
+  ],
+  "initial_promotions": [
+    {
+      "id": "prm-01",
+      "code": "DDNVIP20",
+      "title": "Descuento Exclusivo Verano & OtoÃ±o",
+      "discount_percentage": 20,
+      "valid_until": "2026-11-30",
+      "max_uses": 50,
+      "current_uses": 18,
+      "applicable_categories": [
+        "Lujo",
+        "Playa",
+        "Cultural"
+      ],
+      "active": true,
+      "description": "VÃ¡lido para paquetes con estancia mÃ­nima de 4 noches y reservas de 2 o mÃ¡s pasajeros."
+    },
+    {
+      "id": "prm-02",
+      "code": "EARLYBIRD10",
+      "title": "Preventa Temporada Alta 2027",
+      "discount_percentage": 10,
+      "valid_until": "2026-12-31",
+      "max_uses": 100,
+      "current_uses": 42,
+      "applicable_categories": [
+        "Aventura",
+        "Cultural",
+        "Familiar"
+      ],
+      "active": true,
+      "description": "Aplica reservando con mÃ¡s de 60 dÃ­as de anticipaciÃ³n."
+    }
+  ],
+  "initial_notifications": [
+    {
+      "id": "notif-01",
+      "title": "Nueva Reserva Registrada",
+      "message": "El cliente Roberto GÃ³mez confirmÃ³ el paquete Punta Cana Royal Luxury (DDN-2026-881).",
+      "type": "success",
+      "date": "Hace 2 horas",
+      "read": false,
+      "link_tab": "bookings",
+      "visible_roles": [
+        "admin",
+        "employee"
+      ]
+    },
+    {
+      "id": "notif-02",
+      "title": "Alerta Predictiva IA: Alta Demanda CancÃºn",
+      "message": "El algoritmo predictivo proyecta un incremento del 38% en solicitudes para CancÃºn el prÃ³ximo mes.",
+      "type": "info",
+      "date": "Hace 5 horas",
+      "read": false,
+      "link_tab": "ai-predictive",
+      "visible_roles": [
+        "admin",
+        "employee"
+      ]
+    },
+    {
+      "id": "notif-03",
+      "title": "Cupo CrÃ­tico en Paquete Machu Picchu",
+      "message": "Solo quedan 6 cupos disponibles para la salida del 18 de Septiembre.",
+      "type": "warning",
+      "date": "Ayer",
+      "read": true,
+      "link_tab": "packages"
+    }
+  ],
+  "initial_audit_logs": [
+    {
+      "id": "log-01",
+      "timestamp": "2026-08-18 11:20:45",
+      "user_id": "usr-admin-1",
+      "user_name": "Carlos Mendoza",
+      "user_role": "admin",
+      "action": "CREACIÃ“N_PAQUETE",
+      "module": "Paquetes TurÃ­sticos",
+      "details": "Se publicÃ³ el nuevo paquete \"Punta Cana Royal Luxury All-Inclusive\" con 20 cupos.",
+      "ip_address": "190.166.42.10"
+    },
+    {
+      "id": "log-02",
+      "timestamp": "2026-08-18 10:14:02",
+      "user_id": "usr-emp-1",
+      "user_name": "SofÃ­a Valenzuela",
+      "user_role": "employee",
+      "action": "REGISTRO_PAGO",
+      "module": "FacturaciÃ³n & Pagos",
+      "details": "Se registrÃ³ pago parcial de $600 USD para reserva DDN-2026-882 vÃ­a Transferencia.",
+      "ip_address": "190.166.42.15"
+    },
+    {
+      "id": "log-03",
+      "timestamp": "2026-08-17 16:45:10",
+      "user_id": "usr-admin-1",
+      "user_name": "Carlos Mendoza",
+      "user_role": "admin",
+      "action": "EJECUCIÃ“N_PREDICCION_IA",
+      "module": "Motor Inteligente IA",
+      "details": "Se generÃ³ anÃ¡lisis de propensiÃ³n de compra y forecasting de demanda Q3/Q4.",
+      "ip_address": "190.166.42.10"
+    }
+  ],
+  "initial_documents": [
+    {
+      "id": "doc-01",
+      "client_id": "cli-001",
+      "client_name": "Roberto GÃ³mez",
+      "doc_type": "Pasaporte",
+      "file_name": "Pasaporte_Roberto_Gomez_2028.pdf",
+      "file_size": "2.4 MB",
+      "upload_date": "2026-08-01",
+      "expiry_date": "2028-11-20",
+      "status": "VÃ¡lido"
+    },
+    {
+      "id": "doc-02",
+      "client_id": "cli-001",
+      "client_name": "Roberto GÃ³mez",
+      "doc_type": "Voucher de Reserva",
+      "file_name": "Voucher_CapCana_DDN-881.pdf",
+      "file_size": "1.1 MB",
+      "upload_date": "2026-08-01",
+      "status": "VÃ¡lido"
+    },
+    {
+      "id": "doc-03",
+      "client_id": "cli-002",
+      "client_name": "Mariana Silva Torres",
+      "doc_type": "PÃ³liza de Seguro",
+      "file_name": "Poliza_Seguro_Asistencia_Andina.pdf",
+      "file_size": "890 KB",
+      "upload_date": "2026-08-09",
+      "expiry_date": "2026-10-25",
+      "status": "VÃ¡lido"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-8 view-fade-in">
+  <div class="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-indigo-900/50 to-purple-900/40 backdrop-blur-2xl border border-white/10 text-white shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div>
+      <h1 class="text-2xl sm:text-3xl font-light tracking-tight">Bienvenido, <span class="font-bold text-indigo-300">{{ current_user.name.split(' ')[0] }}</span> ✈️</h1>
+      <p class="text-xs sm:text-sm text-slate-300 mt-1">Tu portal personal de viajes con DDN Travel — recomendaciones, reservas e itinerarios en un solo lugar.</p>
+    </div>
+    <div class="flex flex-wrap gap-3">
+      <button onclick="openModal('modal-new-booking')" class="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/15 text-xs font-bold flex items-center gap-2">
+        {{ m.icon('plus','w-4 h-4') }} Nueva Reserva</button>
+      <button onclick="openModal('modal-ai-itinerary')" class="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2">
+        {{ m.icon('compass','w-4 h-4') }} Generar Itinerario IA</button>
+    </div>
+  </div>
+
+  <div class="bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-xl p-5 space-y-4">
+    <h2 class="text-lg font-light text-white flex items-center gap-2">{{ m.icon('calendar','w-5 h-5 text-sky-400') }} Mis Reservas</h2>
+    {% if not my_bookings %}
+    <p class="text-xs text-slate-400">Aún no tienes reservas registradas. ¡Explora nuestros paquetes y crea tu primera reserva!</p>
+    {% else %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {% for b in my_bookings %}
+      <div class="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1.5 text-xs">
+        <div class="flex items-center justify-between">
+          <span class="font-mono text-2xs text-indigo-300 bg-indigo-500/20 px-1.5 py-0.5 rounded-md">{{ b.booking_code }}</span>
+          <span class="px-2 py-0.5 rounded-full text-3xs font-bold {{ 'bg-emerald-500/20 text-emerald-300' if b.status=='Confirmada' else 'bg-amber-500/20 text-amber-300' }}">{{ b.status }}</span>
+        </div>
+        <p class="font-bold text-white">{{ b.destination_name }}</p>
+        <p class="text-slate-400">{{ b.departure_date }} ➔ {{ b.return_date }} · {{ b.travelers }} viajero(s)</p>
+        <div class="flex items-center justify-between pt-1.5 border-t border-white/5">
+          <span class="font-bold text-white">${{ b.total_price|usd }} USD</span>
+          <button onclick='openBookingDetail({{ b.to_dict()|tojson }})' class="text-indigo-400 hover:text-indigo-300 font-bold text-2xs">Ver Detalle</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <h2 class="text-lg font-light text-white flex items-center gap-2 mb-3">{{ m.icon('package','w-5 h-5 text-purple-400') }} Paquetes Sugeridos para Ti</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {% for pkg in packages %}
+      <div class="bg-white/5 border border-white/10 rounded-3xl overflow-hidden">
+        <img src="{{ pkg.image_url or pkg.image }}" class="w-full h-24 object-cover">
+        <div class="p-3 space-y-1">
+          <p class="text-xs font-bold text-white truncate">{{ pkg.title }}</p>
+          <p class="text-2xs text-slate-400">{{ pkg.destination_name }}</p>
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-emerald-400 font-bold text-xs">${{ pkg.price_usd }}</span>
+            <button onclick="openNewBookingModal('{{ pkg.id }}')" class="text-2xs font-bold text-indigo-400 hover:text-indigo-300">Reservar</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="p-6 rounded-3xl bg-gradient-to-r from-indigo-900/60 via-purple-900/50 to-indigo-950/80 backdrop-blur-2xl border border-indigo-500/30 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-6">
+    <h3 class="text-xl font-bold">¿No sabes a dónde viajar en tus próximas vacaciones?</h3>
+    <button onclick="openModal('modal-ai-recommend')" class="px-5 py-2.5 rounded-2xl bg-white text-indigo-900 text-xs font-bold shadow-lg flex items-center gap-2 shrink-0">
+      {{ m.icon('sparkles','w-4 h-4') }} Pídele Ayuda a la IA</button>
+  </div>
+</div>
+{% endblock %}

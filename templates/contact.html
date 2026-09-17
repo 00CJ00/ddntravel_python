@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-8 view-fade-in">
+  <div class="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-indigo-900/50 to-purple-900/40 backdrop-blur-2xl border border-white/10 text-white shadow-2xl">
+    <h1 class="text-2xl sm:text-3xl font-light tracking-tight flex items-center gap-3">
+      {{ m.icon('mail', 'w-7 h-7 text-indigo-300') }} Contacto
+    </h1>
+    <p class="text-xs sm:text-sm text-slate-300 mt-2">Estamos aquí para ayudarte. Escríbenos, llámanos o solicita que te llamemos.</p>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-2 space-y-6">
+      <div class="p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl">
+        <h2 class="text-lg font-light text-white flex items-center gap-2 mb-4">{{ m.icon('message-square', 'w-5 h-5 text-sky-400') }} Envíanos un mensaje</h2>
+        <form method="POST" action="{{ url_for('main.contact') }}" class="space-y-4" id="contact-form">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label for="name" class="block text-2xs font-medium text-slate-300 mb-1">Nombre completo *</label>
+              <input type="text" id="name" name="name" required
+                     class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/50 transition-all"
+                     value="{{ current_user.name if current_user else '' }}">
+            </div>
+            <div>
+              <label for="email" class="block text-2xs font-medium text-slate-300 mb-1">Correo electrónico *</label>
+              <input type="email" id="email" name="email" required
+                     class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/50 transition-all"
+                     value="{{ current_user.email if current_user else '' }}">
+            </div>
+          </div>
+          <div>
+            <label for="phone" class="block text-2xs font-medium text-slate-300 mb-1">Teléfono (opcional)</label>
+            <input type="tel" id="phone" name="phone"
+                   class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/50 transition-all">
+          </div>
+          <div>
+            <label for="subject" class="block text-2xs font-medium text-slate-300 mb-1">Asunto *</label>
+            <select id="subject" name="subject" required
+                    class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/50 transition-all">
+              <option value="">Selecciona un tema</option>
+              <option value="info">Información general</option>
+              <option value="booking">Consulta sobre reserva</option>
+              <option value="complaint">Reclamo / Sugerencia</option>
+              <option value="callback">Solicitar llamada</option>
+              <option value="other">Otro</option>
+            </select>
+          </div>
+          <div>
+            <label for="message" class="block text-2xs font-medium text-slate-300 mb-1">Mensaje *</label>
+            <textarea id="message" name="message" rows="5" required
+                      class="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/50 transition-all resize-none"
+                      placeholder="Cuéntanos en qué podemos ayudarte..."></textarea>
+          </div>
+<button type="submit"
+                class="w-full sm:w-auto px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/25 flex items-center gap-2 transition-all">
+            {{ m.icon('message-square', 'w-4 h-4') }} Enviar mensaje
+          </button>
+        </form>
+      </div>
+
+      <div class="p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl">
+        <h2 class="text-lg font-light text-white flex items-center gap-2 mb-4">{{ m.icon('help-circle', 'w-5 h-5 text-amber-400') }} Preguntas Frecuentes (FAQ)</h2>
+        <div class="space-y-3" id="faq-list">
+          {% for faq in faqs %}
+          <details class="group bg-white/5 rounded-2xl border border-white/10 overflow-hidden">
+            <summary class="p-4 cursor-pointer flex items-center justify-between list-none text-white">
+              <span class="font-medium pr-4">{{ faq.question }}</span>
+              {{ m.icon('chevron-down', 'w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform') }}
+            </summary>
+            <div class="px-4 pb-4 text-sm text-slate-300 border-t border-white/5">
+              {{ faq.answer }}
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="space-y-6">
+      <div class="p-6 rounded-3xl bg-gradient-to-br from-sky-900/50 to-indigo-900/40 backdrop-blur-2xl border border-sky-500/30 text-white shadow-xl">
+        <h2 class="text-lg font-light text-white flex items-center gap-2 mb-4">{{ m.icon('phone', 'w-5 h-5 text-sky-300') }} Llámanos</h2>
+        <div class="space-y-3">
+          <a href="tel:+18095550123" class="flex items-center gap-3 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all">
+            <div class="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center">{{ m.icon('phone', 'w-5 h-5 text-sky-300') }}</div>
+            <div>
+              <p class="text-2xs text-slate-400">Ventas & Reservas</p>
+              <p class="font-bold text-white">+1 (809) 555-0123</p>
+            </div>
+          </a>
+          <a href="tel:+18095550124" class="flex items-center gap-3 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">{{ m.icon('phone', 'w-5 h-5 text-emerald-300') }}</div>
+            <div>
+              <p class="text-2xs text-slate-400">Soporte 24/7</p>
+              <p class="font-bold text-white">+1 (809) 555-0124</p>
+            </div>
+          </a>
+          <a href="mailto:info@ddntravel.com" class="flex items-center gap-3 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all">
+            <div class="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">{{ m.icon('mail', 'w-5 h-5 text-purple-300') }}</div>
+            <div>
+              <p class="text-2xs text-slate-400">Correo general</p>
+              <p class="font-bold text-white truncate">info@ddntravel.com</p>
+            </div>
+          </a>
+        </div>
+        <p class="text-2xs text-slate-400 mt-4 pt-3 border-t border-white/10">Horario: Lun-Vie 8:00-20:00 · Sáb 9:00-14:00 (AST)</p>
+      </div>
+
+      <div class="p-6 rounded-3xl bg-gradient-to-br from-amber-900/50 to-orange-900/40 backdrop-blur-2xl border border-amber-500/30 text-white shadow-xl">
+        <h2 class="text-lg font-light text-white flex items-center gap-2 mb-4">{{ m.icon('map-pin', 'w-5 h-5 text-amber-300') }} Nuestra oficina</h2>
+        <address class="text-slate-300 not-italic text-sm space-y-2">
+          <p>DDN Travel · Av. Winston Churchill 1052</p>
+          <p>Ensanche Piantini, Santo Domingo</p>
+          <p>República Dominicana · 10148</p>
+        </address>
+        <div class="mt-4 pt-4 border-t border-white/10">
+          <a href="https://maps.google.com/?q=DDN+Travel+Santo+Domingo" target="_blank" rel="noopener"
+             class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all">
+            {{ m.icon('navigation', 'w-4 h-4') }} Ver en Google Maps
+          </a>
+        </div>
+      </div>
+
+      {% if current_user and current_user.role == 'client' %}
+      <div class="p-6 rounded-3xl bg-gradient-to-br from-rose-900/50 to-pink-900/40 backdrop-blur-2xl border border-rose-500/30 text-white shadow-xl">
+        <h2 class="text-lg font-light text-white flex items-center gap-2 mb-4">{{ m.icon('bell', 'w-5 h-5 text-rose-300') }} ¿Necesitas ayuda urgente?</h2>
+        <p class="text-slate-300 text-sm mb-4">Solicita que un agente te llame en los próximos 15 minutos.</p>
+        <form method="POST" action="{{ url_for('main.request_callback') }}" class="space-y-3">
+          <input type="hidden" name="client_id" value="{{ current_user.id }}">
+          <div>
+            <label for="callback_reason" class="block text-2xs font-medium text-slate-300 mb-1">Motivo de la llamada</label>
+            <select id="callback_reason" name="reason" required
+                    class="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500/50 transition-all">
+              <option value="">Selecciona...</option>
+              <option value="booking_issue">Problema con mi reserva</option>
+              <option value="changes">Cambios en mi viaje</option>
+              <option value="documents">Documentación / Visas</option>
+              <option value="emergency">Emergencia en viaje</option>
+              <option value="other">Otro</option>
+            </select>
+          </div>
+          <div>
+            <label for="callback_phone" class="block text-2xs font-medium text-slate-300 mb-1">Teléfono de contacto *</label>
+            <input type="tel" id="callback_phone" name="phone" required
+                   class="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500/50 transition-all"
+                   placeholder="+1 (809) xxx-xxxx">
+          </div>
+          <button type="submit"
+                  class="w-full px-4 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center justify-center gap-2 transition-all">
+            {{ m.icon('phone-call', 'w-4 h-4') }} Solicitar llamada ahora
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

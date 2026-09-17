@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+    {{ m.icon('activity','w-6 h-6 text-amber-400') }} Tours, Excursiones & Actividades (RF-18)
+  </h1>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+    {% for act in activities %}
+    <div class="bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl overflow-hidden hover:border-white/20 transition-all group" data-searchable>
+      <div class="relative h-32 overflow-hidden">
+        <img src="{{ act.image }}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
+        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
+        <h3 class="absolute bottom-3 left-4 right-4 text-sm font-bold text-white drop-shadow-lg line-clamp-1">{{ act.title }}</h3>
+      </div>
+      <div class="p-4 space-y-1.5 text-2xs">
+        <p class="text-slate-400">{{ act.destination_name }} · {{ act.duration_hours }}h · {{ act.difficulty }}</p>
+        <p class="text-slate-300 line-clamp-2">{{ act.description }}</p>
+        <div class="flex items-center justify-between pt-2 border-t border-white/5">
+          <span class="text-white font-bold">${{ act.price_usd }} USD</span>
+          <span class="text-slate-400">{{ '🧭 Con guía' if act.includes_guide else 'Sin guía' }}</span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
