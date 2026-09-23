@@ -1,11 +1,8 @@
 """Fábrica de la aplicación Flask para DDN Travel."""
-import os
 from flask import Flask
-from dotenv import load_dotenv
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-# In development, always prefer the current local .env over stale shell values.
-load_dotenv(override=True)
+from .config import get_config, resolve_secret_key
 
 
 def usd_filter(value):
@@ -22,12 +19,18 @@ def usd2_filter(value):
         return value
 
 
-def create_app():
+def create_app(config_object=None):
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
     # Trust the single reverse proxy used by ngrok for public OAuth callbacks.
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
-    # An empty SECRET_KEY in .env must not disable Flask sessions.
-    app.secret_key = os.environ.get("SECRET_KEY") or "ddn-travel-dev-secret-key"
+
+    config = get_config() if config_object is None else config_object
+    app.config.from_object(config)
+    app.secret_key = resolve_secret_key(
+        app.config.get("SECRET_KEY", "").strip(),
+        app.config.get("ENV", "development"),
+        logger=app.logger,
+    )
 
     app.jinja_env.filters["usd"] = usd_filter
     app.jinja_env.filters["usd2"] = usd2_filter

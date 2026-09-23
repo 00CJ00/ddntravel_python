@@ -1,5 +1,6 @@
 # Claves y secretos
 .env
+ngrok.yml
 
 # Entornos virtuales
 venv/
@@ -14,6 +15,12 @@ __pycache__/
 
 # Estado persistente de la demo
 state.json
+
+# Bases de datos y archivos locales
+*.db
+instance/
+backups/
+uploads/
 
 # Tests / tooling
 .pytest_cache/

@@ -6,6 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import app.routes as routes_module
 import app.store as store_module
 from app import create_app
 
@@ -13,7 +14,11 @@ from app import create_app
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(store_module, "STATE_PATH", tmp_path / "state.json")
-    store_module.store = store_module.DataStore()
+    new_store = store_module.DataStore()
+    store_module.store = new_store
+    # routes.py hace `from .store import store` al importar; hay que apuntar
+    # su referencia al store aislado para que ninguna prueba toque el real.
+    routes_module.store = new_store
     app = create_app()
     app.config["TESTING"] = True
     with app.test_client() as c:
@@ -38,7 +43,11 @@ def test_login_credenciales_incorrectas(client):
 
 
 def test_login_admin_ok(client):
+    # POST /login redirige a "/" (main.index) y ese endpoint redirige a /dashboard.
     res = _login(client, "admin@ddntravel.com")
+    assert res.status_code == 302
+    assert res.headers["Location"] == "/"
+    res = client.get("/", follow_redirects=False)
     assert res.status_code == 302
     assert "/dashboard" in res.headers["Location"]
 

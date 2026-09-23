@@ -49,7 +49,7 @@ static/
 ## Instalación
 
 ```bash
-cd ddn_python
+cd ddntravel_python
 pip install -r requirements.txt        # Flask, python-dotenv, google-genai,
                                          # flask-dance, reportlab
 cp .env.example .env                     # Edita y coloca GEMINI_API_KEY (opcional)
@@ -148,18 +148,6 @@ quedan registrados en el historial de la agencia.
 Los cambios en la información de perfil se reflejan al instante en todos
 los módulos de la aplicación y quedan auditados en el módulo de Auditoría
 (RN-05) para el rol de administrador.
-
-## Inicio de sesión con Google (OAuth)
-
-Opcional. Configurar en `.env`:
-1. Crear OAuth Client ID (tipo "Web app") en Google Cloud Console.
-2. URI de redirección autorizada: `http://localhost:3000/login/google/authorized`.
-3. Agregar `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` al `.env`.
-4. Reiniciar servidor (`python run.py`).
-
-Cuando un usuario entra por primera vez con Google, se registra automáticamente
-como **Cliente Viajero** (creando su perfil en el CRM). Sin credenciales, el
-botón simplemente no se muestra y todo funciona con login/contraseña.
 
 ## Persistencia de datos
 

@@ -1,0 +1,5 @@
+# Copia este archivo a "ngrok.yml" y pega tu authtoken real.
+# ¡NUNCA subas ngrok.yml con tu token a GitHub!
+version: 3
+agent:
+  authtoken: 3J1cBhInAnIMlZOwJHxuOgcKLz1_858rFsd9sYvs28EKcwK3H
