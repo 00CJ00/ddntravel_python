@@ -161,39 +161,25 @@
           <a href="{{ url_for('main.edit_profile') }}" class="text-3xs font-semibold text-emerald-400 hover:text-emerald-300 mb-2 block flex items-center gap-1">
             {{ m.icon('edit', 'w-3.5 h-3.5') }}<span>Editar Mi Perfil</span>
           </a>
+          {% else %}
+          <a href="{{ url_for('main.edit_profile') }}" class="text-3xs font-semibold text-indigo-400 hover:text-indigo-300 mb-2 block flex items-center gap-1">
+            {{ m.icon('edit', 'w-3.5 h-3.5') }}<span>Editar Perfil de Cliente</span>
+          </a>
           {% endif %}
           
           </div>
-          {% if current_user.role == 'admin' %}
-          <div class="space-y-1">
-            <span class="text-3xs font-bold text-slate-500 uppercase tracking-widest px-2 block mb-1">Cambiar Perfil / Rol (RF-01)</span>
-            <a href="{{ url_for('main.edit_profile') }}" class="text-3xs font-semibold text-indigo-400 hover:text-indigo-300 mb-2 block">Editar Perfil...</a>
-            {% for u in available_users -%}
-            {% if u.role != 'client' and not u.id.startswith('usr-g') %}
-            <form method="POST" action="{{ url_for('main.switch_user') }}">
-              <input type="hidden" name="user_id" value="{{ u.id }}">
-              <button class="w-full text-left p-2 rounded-xl text-xs font-medium flex items-center justify-between transition-colors {{ 'bg-indigo-600/20 text-indigo-300 font-bold border border-indigo-500/30' if current_user.id==u.id else 'hover:bg-white/5 text-slate-300' }}">
-                <div class="flex items-center gap-2">
-                  <img src="{{ u.avatar }}" class="w-6 h-6 rounded-full object-cover ring-1 ring-white/10">
-                  <div>
-                    <p class="leading-tight text-white">{{ u.name.split(' (')[0] }}</p>
-                    <span class="text-3xs text-slate-400">{{ 'Administrador' if u.role=='admin' else 'Agente / Empleado' }}</span>
-                  </div>
-                </div>
-                {% if current_user.id == u.id %}{{ m.icon('checkcircle', 'w-3.5 h-3.5 text-indigo-400') }}{% endif %}
-              </button>
-            </form>
-            {% endif %}
-            {%- endfor %}
-          </div>
-          {% endif %}
           <div class="pt-2 mt-2 border-t border-white/5 space-y-1">
-            <form method="POST" action="{{ url_for('main.reset_data') }}" onsubmit="return confirm('¿Restablecer todos los datos de demostración?');">
+            {% if current_user.role == 'admin' %}
+            <form method="POST" action="{{ url_for('main.reset_data') }}" onsubmit="return confirm('Se borrarán TODOS los datos y se cerrará la sesión. ¿Continuar?');">
+              {{ m.csrf_input() }}
+              <input type="hidden" name="confirm" value="RESTABLECER">
               <button class="w-full text-left p-2 rounded-xl text-xs text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 transition-colors font-medium">
                 {{ m.icon('rotateccw', 'w-3.5 h-3.5') }} Restablecer Datos Iniciales
               </button>
             </form>
+            {% endif %}
             <form method="POST" action="{{ url_for('main.logout') }}">
+              {{ m.csrf_input() }}
               <button class="w-full text-left p-2 rounded-xl text-xs text-slate-300 hover:bg-white/5 flex items-center gap-2 transition-colors font-medium">
                 {{ m.icon('logout', 'w-3.5 h-3.5') }} Cerrar Sesión
               </button>

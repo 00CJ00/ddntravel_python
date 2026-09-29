@@ -1,8 +1,13 @@
-"""Rutas de la aplicación DDN Travel (equivalente a App.tsx + server.ts)."""
+"""Rutas de la aplicación DDN Travel (equivalente a App.tsx + server.ts).
+
+La autorización se resuelve con ``app/permissions.py``: cada ruta declara el
+permiso que exige (``@permission_required``) y, cuando aplica, además verifica
+la propiedad del registro (``owned_or_404``). La matriz de permisos es la
+única fuente de verdad; aquí no se comprueban roles a mano.
+"""
 from __future__ import annotations
 import os
 import datetime
-from functools import wraps
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session, jsonify,
@@ -14,29 +19,21 @@ from .store import store
 from .models import Client, UserSession, new_id
 from . import ai_service
 from .billing import generar_ncf, generar_pdf_factura, validar_rnc, ultimo_ncf_desde_state
+from .extensions import limiter
+from .permissions import (
+    PUBLIC_ENDPOINTS, client_record, get_current_user, get_store, owned_or_404,
+    own_records, owns, permission_required,
+)
 
 bp = Blueprint("main", __name__)
 
-CLIENT_ALLOWED_TABS = {"client-portal", "packages", "destinations", "ai-predictive", "activities", "documents"}
-
-# Endpoints accesibles sin haber iniciado sesión
-LOGIN_EXEMPT = {
-    "main.login", "main.logout", "main.health",
-    "main.google_login", "main.google_authorized",
-    "main.set_theme",
-    "main.google.login", "main.google.authorized",
-    "main.contact", "main.request_callback", "main.chat_message",
-}
+# Endpoints accesibles sin haber iniciado sesión (definidos en app/permissions.py).
+LOGIN_EXEMPT = set(PUBLIC_ENDPOINTS)
 
 
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
-def get_current_user():
-    user_id = session.get("user_id")
-    return store.get_user(user_id) if user_id else None
-
-
 def int_field(form, key, default, minimum=None, maximum=None):
     """Lee un entero de un formulario de forma segura (nunca lanza ValueError)."""
     try:
@@ -58,20 +55,14 @@ def float_field(form, key, default=0.0):
         return default
 
 
-def role_required(*roles):
-    """Restringe una ruta a ciertos roles. Redirige al login si no hay sesión
-    y devuelve 403 si el rol actual no está entre los permitidos."""
-    def decorator(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            user = get_current_user()
-            if user is None:
-                return redirect(url_for("main.login"))
-            if roles and user.role not in roles:
-                abort(403)
-            return fn(*args, **kwargs)
-        return wrapper
-    return decorator
+def dev_switch_enabled():
+    """El selector de usuario solo existe en desarrollo y con el flag puesto.
+
+    Es una ayuda de demostración (RF-01) y una escalada de privilegios
+    evidente, así que queda apagado salvo que se pida explícitamente.
+    """
+    from flask import current_app
+    return bool(current_app.debug) and bool(current_app.config.get("ENABLE_DEV_SWITCH"))
 
 
 @bp.before_request
@@ -123,6 +114,7 @@ def inject_globals():
 # Navegación principal
 # ----------------------------------------------------------------------
 @bp.route("/")
+@permission_required("session:entry")
 def index():
     user = get_current_user()
     if user is None:
@@ -147,6 +139,7 @@ def login():
 
 
 @bp.route("/logout", methods=["POST"])
+@permission_required("session:logout")
 def logout():
     session.clear()
     for key in ("google_token", "google_oauth_state"):
@@ -156,7 +149,7 @@ def logout():
 
 
 @bp.route("/dashboard")
-@role_required("admin", "employee")
+@permission_required("dashboard:view")
 def dashboard():
     if get_current_user().role == "client":
         return redirect(url_for("main.client_portal"))
@@ -177,7 +170,7 @@ def dashboard():
 
 
 @bp.route("/ai-predictive")
-@role_required()
+@permission_required("ai:predictive_view")
 def ai_predictive():
     timeframe = request.args.get("timeframe", "Próximos 6 meses (Q3 & Q4)")
     if store.predictive_data is None:
@@ -188,75 +181,75 @@ def ai_predictive():
 
 
 @bp.route("/bookings")
-@role_required("admin", "employee")
+@permission_required("bookings:view")
 def bookings():
     return render_template("bookings.html", active_tab="bookings",
                             bookings=list(reversed(store.bookings)))
 
 
 @bp.route("/clients")
-@role_required("admin", "employee")
+@permission_required("clients:view")
 def clients():
     return render_template("clients.html", active_tab="clients", clients=store.clients)
 
 
 @bp.route("/packages")
-@role_required()
+@permission_required("catalog:view_packages")
 def packages():
     return render_template("packages.html", active_tab="packages", packages=store.packages,
                             destinations=store.destinations)
 
 
 @bp.route("/destinations")
-@role_required()
+@permission_required("catalog:view_destinations")
 def destinations():
     return render_template("destinations.html", active_tab="destinations", destinations=store.destinations)
 
 
 @bp.route("/admin/destinations", methods=["POST"])
-@role_required("admin")
+@permission_required("catalog:create")
 def admin_add_destination():
     data = request.form
-    dest = store.add_destination(current_user, **data)
+    dest = store.add_destination(get_current_user(), **data)
     return jsonify({"success": True, "id": dest.id, "name": dest.name})
 
 
 @bp.route("/admin/destinations/<dest_id>", methods=["POST"])
-@role_required("admin")
+@permission_required("catalog:edit")
 def admin_edit_destination(dest_id):
     data = request.form
-    dest = store.edit_destination(current_user, dest_id, **data)
+    dest = store.edit_destination(get_current_user(), dest_id, **data)
     if dest:
         return jsonify({"success": True, "name": dest.name})
     return jsonify({"success": False, "error": "Destino no encontrado"}), 404
 
 
 @bp.route("/hotels")
-@role_required("admin", "employee")
+@permission_required("catalog:view_hotels")
 def hotels():
     return render_template("hotels.html", active_tab="hotels", hotels=store.hotels)
 
 
 @bp.route("/flights")
-@role_required("admin", "employee")
+@permission_required("catalog:view_flights")
 def flights():
     return render_template("flights.html", active_tab="flights", flights=store.flights)
 
 
 @bp.route("/transports")
-@role_required("admin", "employee")
+@permission_required("catalog:view_transports")
 def transports():
     return render_template("transports.html", active_tab="transports", transports=store.transports)
 
 
 @bp.route("/activities")
-@role_required()
+@permission_required("catalog:view_activities")
 def activities():
     return render_template("activities.html", active_tab="activities", activities=store.activities)
 
 
 @bp.route("/payments")
-@role_required("admin", "employee")
+@permission_required("payments:view")
 def payments():
     return render_template("payments.html", active_tab="payments", payments=store.payments,
                             pending_bookings=[b for b in store.bookings if b.payment_status != "Pagado"
@@ -264,26 +257,26 @@ def payments():
 
 
 @bp.route("/promotions")
-@role_required("admin", "employee")
+@permission_required("promotions:view")
 def promotions():
     return render_template("promotions.html", active_tab="promotions", promotions=store.promotions)
 
 
 @bp.route("/documents")
-@role_required()
+@permission_required("documents:view")
 def documents():
     return render_template("documents.html", active_tab="documents", documents=store.documents,
                             clients=store.clients)
 
 
 @bp.route("/audit")
-@role_required("admin")
+@permission_required("audit:view")
 def audit():
     return render_template("audit.html", active_tab="audit", logs=store.audit_logs)
 
 
 @bp.route("/client-portal")
-@role_required("client")
+@permission_required("portal:view")
 def client_portal():
     user = get_current_user()
     my_bookings = [b for b in store.bookings if b.client_email == user.email]
@@ -292,19 +285,16 @@ def client_portal():
 
 
 # ----------------------------------------------------------------------
-# Sesión: usuario / tema / reset
+# Sesión: tema / perfil / reset
 # ----------------------------------------------------------------------
-@bp.route("/switch-user", methods=["POST"])
-def switch_user():
-    user_id = request.form.get("user_id")
-    session["user_id"] = user_id
-    user = store.get_user(user_id)
-    if user and user.role == "client":
-        return redirect(url_for("main.client_portal"))
-    return redirect(url_for("main.dashboard"))
+# Nota: /switch-user se eliminó en la fase P1. Era una escalada de privilegios
+# (cualquiera con sesión podía convertirse en otro usuario con solo un POST).
+# Se ha retirado también el selector de la interfaz (templates/base.html).
+# La demostración de roles se hace con las tres credenciales del seed.
 
 
 @bp.route("/set-theme/<theme>", methods=["POST"])
+@permission_required("theme:set")
 def set_theme(theme):
     session["theme"] = "light" if theme == "light" else "deep-space"
     user = get_current_user()
@@ -313,6 +303,7 @@ def set_theme(theme):
 
 
 @bp.route("/edit-profile", methods=["GET", "POST"])
+@permission_required("profile:edit")
 def edit_profile():
     current_user = get_current_user()
     if current_user is None:
@@ -365,19 +356,35 @@ def edit_profile():
 
 
 @bp.route("/reset", methods=["POST"])
+@permission_required("data:reset")
 def reset_data():
+    """Restablece los datos de demostración.
+
+    Doble protección: solo administradores (permiso ``data:reset``) y solo si
+    la instalación tiene ``ENABLE_RESET=1``. Además exige una confirmación
+    explícita enviada por el formulario, para que un POST aislado no borre nada.
+    """
+    from flask import current_app
+    if not current_app.config.get("ENABLE_RESET"):
+        abort(404)
+    if request.form.get("confirm") != "RESTABLECER":
+        flash("Para restablecer los datos debes confirmar la operación.", "error")
+        return redirect_back("main.dashboard")
     store.reset_all_data()
     session.pop("user_id", None)
-    return redirect(url_for("main.dashboard"))
+    flash("Datos de demostración restablecidos.", "success")
+    return redirect(url_for("main.login"))
 
 
 @bp.route("/notifications/<notif_id>/read", methods=["POST"])
+@permission_required("notifications:read")
 def read_notification(notif_id):
     store.mark_notification_as_read(notif_id)
     return redirect_back("main.dashboard")
 
 
 @bp.route("/notifications/read-all", methods=["POST"])
+@permission_required("notifications:read")
 def read_all_notifications():
     store.mark_all_notifications_as_read()
     return redirect_back("main.dashboard")
@@ -387,6 +394,7 @@ def read_all_notifications():
 # Clientes
 # ----------------------------------------------------------------------
 @bp.route("/clients/new", methods=["POST"])
+@permission_required("clients:create")
 def new_client():
     f = request.form
     destinations_list = [d.strip() for d in f.get("preferred_destinations", "").split(",") if d.strip()]
@@ -404,6 +412,7 @@ def new_client():
 # Reservas (RN-01, RN-02, RN-03)
 # ----------------------------------------------------------------------
 @bp.route("/bookings/new", methods=["POST"])
+@permission_required("bookings:create")
 def new_booking():
     f = request.form
     current_user = get_current_user()
@@ -469,12 +478,14 @@ def new_booking():
 
 
 @bp.route("/bookings/<booking_id>/cancel", methods=["POST"])
+@permission_required("bookings:cancel")
 def cancel_booking(booking_id):
     store.cancel_booking(get_current_user(), booking_id, request.form.get("reason", ""))
     return redirect_back("main.bookings")
 
 
 @bp.route("/bookings/<booking_id>/status", methods=["POST"])
+@permission_required("bookings:status")
 def update_booking_status(booking_id):
     store.update_booking_status(get_current_user(), booking_id, request.form.get("status", "Pendiente"))
     return redirect_back("main.bookings")
@@ -484,6 +495,7 @@ def update_booking_status(booking_id):
 # Pagos (RF-11, RN-03)
 # ----------------------------------------------------------------------
 @bp.route("/payments/new", methods=["POST"])
+@permission_required("payments:create")
 def new_payment():
     f = request.form
     result = store.register_payment(
@@ -508,6 +520,7 @@ def new_payment():
 # Promociones (RF-12)
 # ----------------------------------------------------------------------
 @bp.route("/promotions/new", methods=["POST"])
+@permission_required("promotions:create")
 def new_promotion():
     f = request.form
     categories = [c.strip() for c in f.get("applicable_categories", "").split(",") if c.strip()]
@@ -523,12 +536,14 @@ def new_promotion():
 
 
 @bp.route("/promotions/<promo_id>/toggle", methods=["POST"])
+@permission_required("promotions:toggle")
 def toggle_promotion(promo_id):
     store.toggle_promotion_status(promo_id)
     return redirect(url_for("main.promotions"))
 
 
 @bp.route("/api/promo/preview", methods=["POST"])
+@permission_required("promotions:apply")
 def preview_promo():
     data = request.get_json(force=True, silent=True) or {}
     result = store.apply_promo_code(data.get("code", ""), float(data.get("total", 0) or 0))
@@ -539,6 +554,7 @@ def preview_promo():
 # Documentos (RF-17)
 # ----------------------------------------------------------------------
 @bp.route("/documents/new", methods=["POST"])
+@permission_required("documents:create")
 def new_document():
     f = request.form
     client = store.get_client(f.get("client_id", ""))
@@ -552,6 +568,7 @@ def new_document():
 
 
 @bp.route("/documents/<doc_id>/delete", methods=["POST"])
+@permission_required("documents:delete")
 def delete_document(doc_id):
     store.delete_document(get_current_user(), doc_id)
     return redirect(url_for("main.documents"))
@@ -561,6 +578,7 @@ def delete_document(doc_id):
 # API de Inteligencia Artificial (RF-20) — igual que server.ts
 # ----------------------------------------------------------------------
 @bp.route("/api/ai/predictive-analytics", methods=["POST"])
+@permission_required("ai:predictive_run")
 def api_predictive_analytics():
     data = request.get_json(force=True, silent=True) or {}
     timeframe = data.get("selectedTimeframe", "Próximos 6 meses")
@@ -576,6 +594,7 @@ def api_predictive_analytics():
 
 
 @bp.route("/api/ai/recommendations", methods=["POST"])
+@permission_required("ai:recommend")
 def api_recommendations():
     data = request.get_json(force=True, silent=True) or {}
     result = ai_service.get_recommendations(
@@ -586,6 +605,7 @@ def api_recommendations():
 
 
 @bp.route("/api/ai/generate-itinerary", methods=["POST"])
+@permission_required("ai:itinerary")
 def api_generate_itinerary():
     data = request.get_json(force=True, silent=True) or {}
     result = ai_service.get_itinerary(
@@ -728,7 +748,7 @@ def contact():
 
 
 @bp.route("/contacto/callback", methods=["POST"])
-@role_required("client")
+@permission_required("profile:callback")
 def request_callback():
     f = request.form
     reason = f.get("reason", "").strip()
@@ -792,7 +812,7 @@ def server_error(_e):
 # Facturación RD: NCF y PDF de factura
 # ----------------------------------------------------------------------
 @bp.route("/payments/<payment_id>/ncf", methods=["GET"])
-@role_required("admin", "employee")
+@permission_required("payments:invoice")
 def payment_ncf(payment_id):
     """Endpoint para obtener o generar el NCF de un pago."""
     payment = store.get_payment(payment_id)
@@ -816,7 +836,7 @@ def payment_ncf(payment_id):
 
 
 @bp.route("/payments/<payment_id>/factura", methods=["GET"])
-@role_required("admin", "employee")
+@permission_required("payments:invoice")
 def payment_factura(payment_id):
     """Descarga la factura PDF asociada a un pago."""
     payment = store.get_payment(payment_id)

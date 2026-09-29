@@ -50,6 +50,8 @@ def test_can_sin_sesion_devuelve_false(app):
 # Permisos por rol (tabla de la fase P1)
 # ----------------------------------------------------------------------
 @pytest.mark.parametrize("permiso,admin,employee,client", [
+    ("session:entry", True, True, True),
+    ("session:logout", True, True, True),
     ("dashboard:view", True, True, False),
     ("reports:view", True, True, False),
     ("audit:view", True, False, False),

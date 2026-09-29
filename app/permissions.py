@@ -54,6 +54,11 @@ STAFF_ROLES = frozenset({"admin", "employee"})
 
 #: Matriz de permisos: permiso -> roles autorizados. Única fuente de verdad.
 PERMISSIONS: dict[str, frozenset[str]] = {
+    # --- Acceso de solo lectura a la aplicación ---
+    # Rutas que solo necesitan sesión (portada, salud, contacto público, chat).
+    "session:entry": frozenset({"admin", "employee", "client"}),
+    "session:logout": frozenset({"admin", "employee", "client"}),
+
     # --- Dashboard y reportes (RF-14) ---
     "dashboard:view": STAFF_ROLES,
     "reports:view": STAFF_ROLES,
@@ -118,7 +123,6 @@ PERMISSIONS: dict[str, frozenset[str]] = {
 
     # --- Datos de demostración (protegido además por ENABLE_RESET) ---
     "data:reset": frozenset({"admin"}),
-    "session:logout": frozenset({"admin", "employee", "client"}),
 }
 
 #: Endpoints accesibles sin sesión (públicos por diseño).
@@ -137,8 +141,15 @@ PUBLIC_ENDPOINTS = frozenset({
 #: Endpoint -> permiso requerido. Debe cubrir TODAS las rutas de la aplicación;
 #: ``tests/test_permissions.py`` falla si alguna queda fuera.
 ENDPOINT_PERMISSIONS: dict[str, str] = {
-    "main.index": "dashboard:view",
-    "main.login": "session:logout",  # público: se ignora por estar en PUBLIC_ENDPOINTS
+    # Las rutas públicas conservan aquí un permiso nominal: la autorización real
+    # no se aplica porque están en PUBLIC_ENDPOINTS.
+    "main.index": "session:entry",
+    "main.login": "session:entry",
+    "main.health": "session:entry",
+    "main.contact": "session:entry",
+    "main.chat_message": "session:entry",
+    "main.google_login": "session:entry",
+    "main.google_authorized": "session:entry",
     "main.logout": "session:logout",
     "main.dashboard": "dashboard:view",
     "main.ai_predictive": "ai:predictive_view",
@@ -175,12 +186,7 @@ ENDPOINT_PERMISSIONS: dict[str, str] = {
     "main.api_predictive_analytics": "ai:predictive_run",
     "main.api_recommendations": "ai:recommend",
     "main.api_generate_itinerary": "ai:itinerary",
-    "main.health": "dashboard:view",  # público: se ignora por estar en PUBLIC_ENDPOINTS
-    "main.google_login": "profile:edit",
-    "main.google_authorized": "profile:edit",
-    "main.contact": "profile:callback",
     "main.request_callback": "profile:callback",
-    "main.chat_message": "ai:recommend",
     "main.payment_ncf": "payments:invoice",
     "main.payment_factura": "payments:invoice",
 }
