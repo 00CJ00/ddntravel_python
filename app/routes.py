@@ -7,18 +7,17 @@ la propiedad del registro (``owned_or_404``). La matriz de permisos es la
 """
 from __future__ import annotations
 import os
-import datetime
+from datetime import date
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session, jsonify,
-    abort, flash
+    abort, flash, current_app
 )
 from werkzeug.security import check_password_hash
 
 from .store import store
 from .models import Client, UserSession, new_id
 from . import ai_service
-from .billing import generar_ncf, generar_pdf_factura, validar_rnc, ultimo_ncf_desde_state
 from .extensions import limiter
 from .permissions import (
     PUBLIC_ENDPOINTS, client_record, get_current_user, get_store, owned_or_404,
@@ -79,6 +78,28 @@ def redirect_back(default_endpoint: str):
     if ref and request.host_url.rstrip("/") in ref:
         return redirect(ref)
     return redirect(url_for(default_endpoint))
+
+
+def find_payment(payment_id: str):
+    """Busca un pago por su identificador.
+
+    El repositorio definitivo (``store.get_payment``) llega en la fase P4,
+    junto con la secuencia de NCF y el PDF de factura reales.
+    """
+    return next((p for p in store.payments if p.id == payment_id), None)
+
+
+def not_implemented_yet(feature: str):
+    """501 explícito para funcionalidades planificadas en fases posteriores.
+
+    Evita el 500 opaco de una ruta que todavía no tiene la lógica implementada
+    (la autorización y la propiedad ya se han comprobado antes de llegar aquí).
+    """
+    message = (f"{feature} todavía no está disponible: queda implementada en la "
+               f"fase P4 del proyecto (pendiente de fase P4).")
+    if request.path.startswith("/api/"):
+        return jsonify({"success": False, "error": message, "estado": "pendiente_p4"}), 501
+    return render_template("error.html", code=501, message=message), 501
 
 
 @bp.app_context_processor
@@ -265,8 +286,11 @@ def promotions():
 @bp.route("/documents")
 @permission_required("documents:view")
 def documents():
-    return render_template("documents.html", active_tab="documents", documents=store.documents,
-                            clients=store.clients)
+    """Listado de documentos: el cliente solo ve los suyos (propiedad)."""
+    user = get_current_user()
+    visibles = own_records(user, store.documents)
+    return render_template("documents.html", active_tab="documents", documents=visibles,
+                            clients=own_records(user, store.clients))
 
 
 @bp.route("/audit")
@@ -278,10 +302,11 @@ def audit():
 @bp.route("/client-portal")
 @permission_required("portal:view")
 def client_portal():
+    """Portal del cliente: únicamente sus reservas, nunca las de otros (IDOR)."""
     user = get_current_user()
-    my_bookings = [b for b in store.bookings if b.client_email == user.email]
+    my_bookings = own_records(user, store.bookings)
     return render_template("client_portal.html", active_tab="client-portal", my_bookings=my_bookings,
-                            packages=store.packages[:4])
+                           packages=store.packages[:4])
 
 
 # ----------------------------------------------------------------------
@@ -309,18 +334,25 @@ def edit_profile():
     if current_user is None:
         return redirect(url_for("main.login"))
 
-    # Determine which client record to edit
-    client = None
+    # Determinamos sobre qué ficha de cliente se puede escribir.
     if current_user.role == "client":
-        # Find the client associated with this user session
-        client = next((c for c in store.clients if c.email == current_user.email), None)
+        # El cliente solo edita su propio perfil; el id del formulario se ignora.
+        client = client_record(current_user)
+        if client is None:
+            flash("No tienes un perfil de cliente asociado. Contacta a la agencia.", "error")
+            return redirect(url_for("main.client_portal"))
     else:
-        # Admin/employee: pick client from form or first active client
-        client_id = request.form.get("client_id") if request.method == "POST" else None
-        if client_id:
-            client = store.get_client(client_id)
-        if not client:
-            client = store.clients[1] if len(store.clients) > 1 else store.clients[0]
+        # Admin/empleado: elige la ficha del formulario o, en GET, la primera.
+        client_id = request.form.get("client_id") if request.method == "POST" else request.args.get("client_id")
+        client = store.get_client(client_id) if client_id else None
+        if client is None and request.method == "POST":
+            flash("Selecciona un cliente válido para editar su perfil.", "error")
+            return redirect(url_for("main.dashboard"))
+        if client is None:
+            client = store.clients[0] if store.clients else None
+    if client is None:
+        flash("No hay clientes registrados todavía.", "error")
+        return redirect(url_for("main.dashboard"))
 
     if request.method == "POST":
         # Collect form data
@@ -349,9 +381,10 @@ def edit_profile():
             return redirect(url_for("main.client_portal"))
         return redirect(url_for("main.dashboard"))
 
-    # GET: show the form with current data
+    # GET: muestra el formulario con los datos actuales. La lista de fichas
+    # editables la inyecta el store filtrado de la fase P1 (nunca todos).
     return render_template("edit_profile.html", current_user=current_user,
-                           client=client, available_users=store.available_users,
+                           client=client, available_users=own_records(current_user, store.clients),
                            is_admin=current_user.role in ("admin", "employee"))
 
 
@@ -416,14 +449,23 @@ def new_client():
 def new_booking():
     f = request.form
     current_user = get_current_user()
-    client = store.get_client(f.get("client_id", ""))
+    # Un cliente solo puede reservar a su propio nombre: aunque manipule el
+    # formulario, el cliente se toma de la sesión y no del POST (IDOR).
+    if current_user.role == "client":
+        client = client_record(current_user)
+        if client is None:
+            flash("No tienes un perfil de cliente asociado. Contacta a la agencia.", "error")
+            return redirect(url_for("main.client_portal"))
+    else:
+        client = store.get_client(f.get("client_id", ""))
     package = store.get_package(f.get("package_id", "")) if f.get("package_id") else None
     hotel = store.get_hotel(f.get("hotel_id", "")) if f.get("hotel_id") else None
     flight = store.get_flight(f.get("flight_id", "")) if f.get("flight_id") else None
     travelers = int_field(f, "travelers", 1, minimum=1, maximum=10)
 
     if not client:
-        return render_template("bookings.html", active_tab="bookings", bookings=list(reversed(store.bookings)),
+        return render_template("bookings.html", active_tab="bookings",
+                                bookings=own_records(current_user, store.bookings),
                                 error="Regla de Negocio (RN-02): Debe seleccionar o registrar un cliente para "
                                       "asociar a la reserva.")
 
@@ -471,23 +513,36 @@ def new_booking():
 
     if not result["success"]:
         flash(result["message"], "error")
-        return render_template("bookings.html", active_tab="bookings", bookings=list(reversed(store.bookings)),
+        return render_template("bookings.html", active_tab="bookings",
+                                bookings=own_records(current_user, store.bookings),
                                 error=result["message"])
     flash(result["message"], "success")
+    if current_user.role == "client":
+        return redirect(url_for("main.client_portal"))
     return redirect(url_for("main.bookings"))
 
 
 @bp.route("/bookings/<booking_id>/cancel", methods=["POST"])
 @permission_required("bookings:cancel")
 def cancel_booking(booking_id):
-    store.cancel_booking(get_current_user(), booking_id, request.form.get("reason", ""))
-    return redirect_back("main.bookings")
+    """Cancela una reserva verificando propiedad y estado (IDOR)."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    if user.role == "client" and booking.status != "Pendiente":
+        flash("Solo puedes cancelar reservas que estén en estado Pendiente.", "error")
+        return redirect_back("main.client_portal")
+    store.cancel_booking(user, booking_id, request.form.get("reason", ""))
+    default = "main.client_portal" if user.role == "client" else "main.bookings"
+    return redirect_back(default)
 
 
 @bp.route("/bookings/<booking_id>/status", methods=["POST"])
 @permission_required("bookings:status")
 def update_booking_status(booking_id):
-    store.update_booking_status(get_current_user(), booking_id, request.form.get("status", "Pendiente"))
+    """Cambia el estado de una reserva (solo personal interno; RN-03 en P3)."""
+    user = get_current_user()
+    owned_or_404(user, store.get_booking(booking_id))
+    store.update_booking_status(user, booking_id, request.form.get("status", "Pendiente"))
     return redirect_back("main.bookings")
 
 
@@ -497,22 +552,20 @@ def update_booking_status(booking_id):
 @bp.route("/payments/new", methods=["POST"])
 @permission_required("payments:create")
 def new_payment():
+    """Registra un pago (RF-11, solo personal interno)."""
     f = request.form
+    user = get_current_user()
+    booking_id = f.get("booking_id", "")
+    if store.get_booking(booking_id) is None:
+        flash("La reserva indicada no existe.", "error")
+        return redirect(url_for("main.payments"))
     result = store.register_payment(
-        get_current_user(), f.get("booking_id", ""),
+        user, booking_id,
         float_field(f, "amount"), f.get("payment_method", "Tarjeta de Crédito"),
         f.get("reference", ""))
     flash(result.get("message", "Pago registrado."), "success" if result.get("success") else "error")
-    # Generación automática de NCF si el pago no tiene uno aún
-    if result.get("success") and result.get("payment"):
-        payment = result.get("payment")  # PaymentTransaction object
-        if not payment.is_ncf_generated():
-            estado = store.state if hasattr(store, 'state') else {}
-            ultimo = ultimo_ncf_desde_state(estado)
-            nuevo_ncf = generar_ncf("A", ultimo)
-            payment.ncf = nuevo_ncf
-            estado["ultimo_ncf"] = nuevo_ncf
-            store.persist()
+    # La asignación de NCF secuencial y persistente (RF-11 / P4) se hace dentro
+    # de la transacción del pago; ver /payments/<id>/ncf (501 en esta fase).
     return redirect(url_for("main.payments"))
 
 
@@ -557,9 +610,17 @@ def preview_promo():
 @permission_required("documents:create")
 def new_document():
     f = request.form
-    client = store.get_client(f.get("client_id", ""))
+    user = get_current_user()
+    # Un cliente sube documentos a su propio expediente, nunca al de otro (IDOR).
+    if user.role == "client":
+        client = client_record(user)
+        if client is None:
+            flash("No tienes un perfil de cliente asociado. Contacta a la agencia.", "error")
+            return redirect(url_for("main.client_portal"))
+    else:
+        client = store.get_client(f.get("client_id", ""))
     store.add_document(
-        get_current_user(), client_id=client.id if client else "", client_name=client.name if client else "N/A",
+        user, client_id=client.id if client else "", client_name=client.name if client else "N/A",
         doc_type=f.get("doc_type", "Voucher de Reserva"), document_number=f.get("document_number", ""),
         file_name=f.get("file_name") or f"{f.get('doc_type', 'Documento')}_{f.get('document_number', '')}.pdf",
         file_size="1.1 MB", expiry_date=f.get("expiry_date", ""), status="Válido",
@@ -570,6 +631,11 @@ def new_document():
 @bp.route("/documents/<doc_id>/delete", methods=["POST"])
 @permission_required("documents:delete")
 def delete_document(doc_id):
+    """Elimina un documento. Solo administradores (RN-04).
+
+    La comprobación vive en la ruta; ``store.delete_document`` todavía acepta
+    empleados y su validación se refuerza en la fase P3.
+    """
     store.delete_document(get_current_user(), doc_id)
     return redirect(url_for("main.documents"))
 
@@ -683,7 +749,7 @@ def _find_or_create_client_session(email: str, name: str, avatar: str | None = N
             status="Activo",
             trips_count=0,
             total_spent=0,
-            registration_date=datetime.date.today().isoformat(),
+            registration_date=date.today().isoformat(),
             preferred_destinations=[],
             avatar=avatar or "",
         ))
@@ -730,16 +796,29 @@ FAQS = [
 
 
 @bp.route("/contacto", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["MAX_CONTACT_MESSAGE"])
 def contact():
     if request.method == "POST":
         f = request.form
+        # ``.get`` puede devolver None y los POST automatizados no traen todos
+        # los campos: se normalizan a cadena y se corta por longitud.
+        nombre = (f.get("name") or "").strip()[:120]
+        email = (f.get("email") or "").strip()[:120]
+        asunto = (f.get("subject") or "").strip()[:200]
+        mensaje = (f.get("message") or "").strip()
+        if not mensaje:
+            flash("Escribe tu mensaje antes de enviarlo.", "error")
+            return render_template("contact.html", faqs=FAQS)
+        if len(mensaje) > current_app.config["MAX_CONTACT_MESSAGE"]:
+            flash(f"El mensaje es demasiado largo (máximo {current_app.config['MAX_CONTACT_MESSAGE']} caracteres).", "error")
+            return render_template("contact.html", faqs=FAQS)
         store.log_action(
             "public", "Visitante Web", "CONTACT_FORM",
-            "Contacto", f"Mensaje de {f.get('name')} ({f.get('email')}): {f.get('subject')}"
+            "Contacto", f"Mensaje de {nombre} ({email}): {asunto}"
         )
         store.add_notification(
             "Nuevo mensaje de contacto",
-            f"{f.get('name')} ({f.get('email')}) - {f.get('subject')}: {f.get('message')[:120]}...",
+            f"{nombre} ({email}) - {asunto}: {mensaje[:120]}...",
             "info", "contact"
         )
         flash("¡Gracias! Tu mensaje ha sido enviado. Te responderemos en menos de 24 horas.", "success")
@@ -814,56 +893,23 @@ def server_error(_e):
 @bp.route("/payments/<payment_id>/ncf", methods=["GET"])
 @permission_required("payments:invoice")
 def payment_ncf(payment_id):
-    """Endpoint para obtener o generar el NCF de un pago."""
-    payment = store.get_payment(payment_id)
-    if not payment:
-        return "Pago no encontrado", 404
-    # Si no tiene NCF, lo generamos secuencialmente
-    if not payment.is_ncf_generated():
-        estado = store.state if hasattr(store, 'state') else {}
-        ultimo = ultimo_ncf_desde_state(estado)
-        nuevo_ncf = generar_ncf("A", ultimo)
-        payment.ncf = nuevo_ncf
-        # Guardamos el último NCF usado en el state global
-        if "ultimo_ncf" not in estado:
-            estado["ultimo_ncf"] = nuevo_ncf
-        store.persist()
-    return jsonify({
-        "ncf": payment.ncf,
-        "generado": not bool(ultimo) if 'ultimo' in (store.state or {}) else True,
-        "fecha": date.today().isoformat()
-    })
+    """NCF de un pago. Autorización y propiedad ya comprobadas; la emisión
+    real del NCF secuencial y persistente es de la fase P4 (ver P4 punto 2)."""
+    user = get_current_user()
+    payment = find_payment(payment_id)
+    owned_or_404(user, payment)
+    return not_implemented_yet("La emisión del NCF")
 
 
 @bp.route("/payments/<payment_id>/factura", methods=["GET"])
 @permission_required("payments:invoice")
 def payment_factura(payment_id):
-    """Descarga la factura PDF asociada a un pago."""
-    payment = store.get_payment(payment_id)
-    if not payment or not payment.is_ncf_generated():
-        flash("Este pago no tiene NCF generado todavía.", "error")
-        return redirect(url_for("main.payments"))
-    # Datos para el PDF (usar datos reales de la reserva asociada)
-    items = [
-        {"description": f"Reserva #{payment.booking_code}", "quantity": 1, "price": payment.total_price or 0},
-    ]
-    pdf_bytes = generar_pdf_factura(
-        titulo="Factura DDN Travel",
-        rnc_emitter="J302010123",  # RNC de la agencia (ejemplo dominicano)
-        nombre_emitter="DDN Travel Tours",
-        rnc_client=payment.client_email or "—",
-        nombre_client=payment.client_name or "—",
-        items=items,
-        total=payment.total_price or 0,
-        ncf=payment.ncf,
-        fecha=payment.creation_date or date.today().isoformat(),
-    )
-    return send_file(
-        BytesIO(pdf_bytes),
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=f"Factura_NCF-{payment.ncf}.pdf"
-    )
+    """Factura PDF de un pago. Autorización y propiedad ya comprobadas; el
+    PDF real (emisor desde configuración, ítems, NCF) es de la fase P4."""
+    user = get_current_user()
+    payment = find_payment(payment_id)
+    owned_or_404(user, payment)
+    return not_implemented_yet("La factura en PDF")
 
 
 # ----------------------------------------------------------------------

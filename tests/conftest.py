@@ -128,6 +128,11 @@ def login(client, email: str, password: str = DEMO_PASSWORD):
     return post_form(client, "/login", {"email": email, "password": password})
 
 
+def client_booking_of(store, email: str):
+    """Devuelve la primera reserva perteneciente al cliente con ese correo."""
+    return next(b for b in store.bookings if b.client_email == email)
+
+
 @pytest.fixture
 def post_csrf():
     """Devuelve la función :func:`post_form` como fixture."""
