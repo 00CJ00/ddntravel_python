@@ -1,8 +1,12 @@
 """Fábrica de la aplicación Flask para DDN Travel."""
-from flask import Flask
+from urllib.parse import urlparse
+
+from flask import Flask, flash, jsonify, redirect, request, url_for
+from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import get_config, resolve_secret_key
+from .extensions import csrf, limiter
 
 
 def usd_filter(value):
@@ -17,6 +21,14 @@ def usd2_filter(value):
         return f"{float(value):,.2f}"
     except (TypeError, ValueError):
         return value
+
+
+def _same_host_referrer():
+    """Devuelve el referrer solo si apunta a este host (evita open redirect)."""
+    ref = request.referrer
+    if ref and urlparse(ref).netloc == request.host:
+        return ref
+    return None
 
 
 def create_app(config_object=None):
@@ -34,6 +46,29 @@ def create_app(config_object=None):
 
     app.jinja_env.filters["usd"] = usd_filter
     app.jinja_env.filters["usd2"] = usd2_filter
+
+    # --- Seguridad de formularios: toda ruta que muta datos exige token CSRF ---
+    # Flask-WTF añade el global `csrf_token` a Jinja y acepta la cabecera
+    # X-CSRFToken en las peticiones fetch (ver static/js/app.js).
+    csrf.init_app(app)
+
+    # --- Rate limiting por IP (anti fuerza bruta y anti abuso) ---
+    limiter.init_app(app)
+
+    from . import permissions
+    # `can(permiso)` en las plantillas oculta botones que el usuario no puede
+    # usar. La validación real siempre ocurre en la ruta (permission_required).
+    app.jinja_env.globals["can"] = permissions.can
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(_error):
+        """Respuesta clara cuando falta o es inválido el token CSRF."""
+        if request.path.startswith("/api/"):
+            return jsonify({"success": False,
+                            "error": "Token CSRF inválido o ausente."}), 400
+        flash("La sesión expiró o el formulario es inválido. Recarga la página e inténtalo de nuevo.",
+              "error")
+        return redirect(_same_host_referrer() or url_for("main.index"))
 
     from . import routes
     app.register_blueprint(routes.bp)

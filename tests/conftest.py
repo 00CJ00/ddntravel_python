@@ -100,10 +100,19 @@ def client_ratelimit(make_app):
 # Utilidades reutilizables
 # ----------------------------------------------------------------------
 def read_csrf_token(client, url: str = "/login") -> str:
-    """Lee el token CSRF que la aplicación renderiza en un formulario."""
+    """Lee el token CSRF que la aplicación renderiza en un formulario.
+
+    El token vive en la sesión, así que si la página indicada todavía no tiene
+    ningún formulario (tareas anteriores a la fase P1) se recurre al login,
+    que siempre lo incluye.
+    """
     html = client.get(url).get_data(as_text=True)
     match = CSRF_INPUT_RE.search(html)
-    assert match, f"No se encontró el token CSRF en {url}"
+    if match:
+        return match.group(1)
+    html = client.get("/login").get_data(as_text=True)
+    match = CSRF_INPUT_RE.search(html)
+    assert match, f"No se encontró el token CSRF en {url} ni en /login"
     return match.group(1)
 
 
