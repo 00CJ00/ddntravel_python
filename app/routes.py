@@ -19,6 +19,7 @@ from .store import store
 from .models import Client, UserSession, new_id
 from . import ai_service
 from .extensions import limiter
+from .view import store_view
 from .permissions import (
     PUBLIC_ENDPOINTS, client_record, get_current_user, get_store, owned_or_404,
     own_records, owns, permission_required,
@@ -104,26 +105,34 @@ def not_implemented_yet(feature: str):
 
 @bp.app_context_processor
 def inject_globals():
+    """Inyecta en Jinja una vista **filtrada** del store, nunca el store crudo.
+
+    Para el rol ``client`` el store exposé solo su propio registro y el catálogo
+    público; ``window.DDN_DATA`` (en base.html) recibe esa misma vista, de modo
+    que ninguna respuesta contiene datos de otros clientes. La eliminación de
+    ``window.DDN_DATA`` por completo es trabajo de la fase P7.
+    """
     current_user = get_current_user()
+    view = store_view(store, current_user)
     if current_user is not None:
         visible_notifs = [
-            n for n in store.notifications
+            n for n in view.notifications
             if n.visible_roles is None or current_user.role in n.visible_roles
         ]
     else:
         visible_notifs = []
     unread = [n for n in visible_notifs if not n.read]
     client_side_data = {
-        "clients": [c.to_dict() for c in store.clients],
-        "packages": [p.to_dict() for p in store.packages],
-        "hotels": [h.to_dict() for h in store.hotels],
-        "flights": [f.to_dict() for f in store.flights],
+        "clients": [c.to_dict() for c in view.clients],
+        "packages": [p.to_dict() for p in view.packages],
+        "hotels": [h.to_dict() for h in view.hotels],
+        "flights": [f.to_dict() for f in view.flights],
         "currentUser": current_user.to_dict() if current_user else None,
     }
     return {
-        "store": store,
+        "store": view,
         "current_user": current_user,
-        "available_users": store.available_users,
+        "available_users": view.available_users,
         "theme": session.get("theme", "deep-space"),
         "notifications": visible_notifs,
         "unread_notifications": unread,
