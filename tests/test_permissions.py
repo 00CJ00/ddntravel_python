@@ -47,6 +47,56 @@ def test_can_sin_sesion_devuelve_false(app):
 
 
 # ----------------------------------------------------------------------
+# Cobertura de la matriz sobre el mapa de rutas real
+# ----------------------------------------------------------------------
+def test_toda_ruta_que_muta_declara_su_permiso(app):
+    """Ninguna ruta POST/PUT/DELETE puede quedar sin permiso declarado.
+
+    Evita que una ruta nueva heredada (``@route`` sin ``@permission_required``)
+    quede abierta por descuido: o bien el decorador registra el permiso que
+    exige, o bien el endpoint está documentado en ``ENDPOINT_PERMISSIONS``.
+    """
+    sin_permiso = []
+    for regla in app.url_map.iter_rules():
+        metodos = regla.methods - {"HEAD", "OPTIONS", "GET"}
+        if not metodos:
+            continue
+        if regla.endpoint in permissions.ENDPOINT_PERMISSIONS:
+            continue
+        vista = app.view_functions[regla.endpoint]
+        if getattr(vista, "required_permission", None):
+            continue
+        sin_permiso.append(f"{regla.endpoint} {sorted(metodos)}")
+    assert not sin_permiso, f"rutas mutantes sin permiso declarado: {sin_permiso}"
+
+
+def test_todo_endpoint_registrado_existe(app):
+    """``ENDPOINT_PERMISSIONS`` no puede apuntar a endpoints inexistentes."""
+    existentes = {r.endpoint for r in app.url_map.iter_rules()}
+    huerfanos = set(permissions.ENDPOINT_PERMISSIONS) - existentes
+    assert not huerfanos, f"endpoints registrados que no existen: {huerfanos}"
+
+
+def test_todo_endpoint_con_permiso_usa_ese_mismo_permiso(app):
+    """El decorador aplicado y el mapa documentado deben coincidir."""
+    discrepancias = []
+    for endpoint, permiso in permissions.ENDPOINT_PERMISSIONS.items():
+        vista = app.view_functions.get(endpoint)
+        if vista is None:
+            continue
+        declarado = getattr(vista, "required_permission", None)
+        if declarado and declarado != permiso:
+            discrepancias.append(f"{endpoint}: decorador={declarado} mapa={permiso}")
+    assert not discrepancias, discrepancias
+
+
+def test_ninguna_ruta_heredada_usa_el_decorador_old():
+    """``role_required`` se eliminó: la matriz es la única fuente de verdad."""
+    import app.routes as rutas
+    assert not hasattr(rutas, "role_required"), "role_required deberia estar eliminado"
+
+
+# ----------------------------------------------------------------------
 # Permisos por rol (tabla de la fase P1)
 # ----------------------------------------------------------------------
 @pytest.mark.parametrize("permiso,admin,employee,client", [
