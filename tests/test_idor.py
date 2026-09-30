@@ -72,13 +72,52 @@ def test_cliente_no_cancela_reserva_ajena(client, store, login_as, post_csrf):
 
 
 def test_cliente_cancela_su_reserva_pendiente(client, store, login_as, post_csrf):
+    """Un cliente cancela su propia reserva Pendiente (no depende del seed).
+
+    El test crea la reserva con la ruta real, así que el estado de partida
+    ("Pendiente") está garantizado aunque la semilla cambie.
+    """
     login_as(client, CLIENT_EMAIL)
-    propia = next((b for b in store.bookings
-                   if b.client_email == CLIENT_EMAIL and b.status == "Pendiente"), None)
-    if propia is None:
-        pytest.skip("la semilla no tiene reservas pendientes del cliente de demostracion")
-    post_csrf(client, f"/bookings/{propia.id}/cancel", {"reason": "cambio de planes"})
-    assert propia.status == "Cancelada"
+    propia = _crear_reserva_pendiente_del_cliente(client, store, post_csrf)
+    assert propia.status == "Pendiente", f"la reserva deberia iniciar en Pendiente, no {propia.status}"
+
+    respuesta = post_csrf(client, f"/bookings/{propia.id}/cancel", {"reason": "cambio de planes"})
+    assert respuesta.status_code in (200, 302)
+    assert propia.status == "Cancelada", f"la reserva quedo en {propia.status}"
+
+
+def test_cliente_no_cancela_una_reserva_ya_confirmada(client, store, login_as, post_csrf):
+    """Solo se puede cancelar lo que está Pendiente (matriz de permisos)."""
+    login_as(client, CLIENT_EMAIL)
+    propia = _crear_reserva_pendiente_del_cliente(client, store, post_csrf)
+    # El personal confirma la reserva y ya no debe poder cancelarla el cliente.
+    admin = next(u for u in store.available_users if u.role == "admin")
+    store.update_booking_status(admin, propia.id, "Confirmada")
+    assert propia.status == "Confirmada"
+
+    post_csrf(client, f"/bookings/{propia.id}/cancel", {"reason": "should not work"})
+    assert propia.status == "Confirmada", "el cliente cancelo una reserva confirmada"
+
+
+def _crear_reserva_pendiente_del_cliente(client, store, post_csrf):
+    """Crea una reserva propia del cliente demo usando la ruta /bookings/new.
+
+    Devuelve el objeto ``Booking`` recién creado. Se apoya en la respuesta de la
+    ruta (que renderiza bookings.html con error si falla) para no ser silencioso
+    si la creación no ocurre.
+    """
+    ids_antes = {b.id for b in store.bookings}
+    respuesta = post_csrf(client, "/bookings/new", {
+        "client_id": "cualquiera",  # el cliente se toma de la sesión (IDOR)
+        "package_id": store.packages[0].id,
+        "travelers": "1",
+        "departure_date": "2030-03-15",
+        "return_date": "2030-03-25",
+    })
+    nuevas = [b for b in store.bookings if b.id not in ids_antes]
+    assert nuevas, (f"no se creó la reserva (HTTP {respuesta.status_code}); "
+                    f"la creación debe ser explícita para que el test sea determinista")
+    return nuevas[0]
 
 
 def test_cliente_no_confirma_reserva(client, store, login_as, post_csrf):
