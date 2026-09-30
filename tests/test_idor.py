@@ -154,20 +154,9 @@ def test_cliente_no_elimina_documentos(client, store, login_as, post_csrf):
 # ----------------------------------------------------------------------
 # Facturacion: permiso + propiedad antes del 501 de la fase P4
 # ----------------------------------------------------------------------
-def _pago_de_otro_cliente(store):
-    """Primer pago cuya reserva pertenece a un cliente distinto al de demo."""
-    for pago in store.payments:
-        reserva = store.get_booking(pago.booking_id)
-        if reserva is not None and reserva.client_email != CLIENT_EMAIL:
-            return pago
-    return None
-
-
 def test_factura_ajena_devuelve_404_no_501(client, store, login_as):
     """No se filtra ni la existencia de pagos ajenos: 404 antes del 501."""
-    ajena = _pago_de_otro_cliente(store)
-    if ajena is None:
-        pytest.skip("la semilla no tiene pagos de otros clientes")
+    ajena = _crear_pago_de_otro_cliente(store)
     login_as(client, CLIENT_EMAIL)
     assert client.get(f"/payments/{ajena.id}/factura").status_code == 404
     assert client.get(f"/payments/{ajena.id}/ncf").status_code == 404
@@ -176,12 +165,25 @@ def test_factura_ajena_devuelve_404_no_501(client, store, login_as):
 def test_ncf_propio_devuelve_501_pendiente_p4(client, store, login_as):
     login_as(client, CLIENT_EMAIL)
     propia = next(b for b in store.bookings if b.client_email == CLIENT_EMAIL)
-    pago = next((p for p in store.payments if p.booking_id == propia.id), None)
-    if pago is None:
-        pytest.skip("la semilla no tiene pagos para el cliente de demostracion")
+    pago = _registrar_pago(store, propia)
     response = client.get(f"/payments/{pago.id}/ncf")
     assert response.status_code == 501
     assert "P4" in response.get_data(as_text=True)
+
+
+def _registrar_pago(store, reserva, monto=25.0):
+    """Registra un pago real sobre la reserva, sin depender de la semilla."""
+    admin = next(u for u in store.available_users if u.role == "admin")
+    resultado = store.register_payment(admin, reserva.id, monto, "Tarjeta de Crédito")
+    assert resultado.get("success"), resultado
+    return next(p for p in store.payments if p.booking_id == reserva.id)
+
+
+def _crear_pago_de_otro_cliente(store):
+    """Pago sobre una reserva de otro cliente (setup explícito del test)."""
+    ajena = next(b for b in store.bookings
+                 if b.client_email and b.client_email != CLIENT_EMAIL)
+    return _registrar_pago(store, ajena)
 
 
 def test_factura_de_pago_inexistente_devuelve_404(client, login_as):
