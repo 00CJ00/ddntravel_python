@@ -14,6 +14,7 @@
       <div class="p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl">
         <h2 class="text-lg font-light text-white flex items-center gap-2 mb-4">{{ m.icon('message-square', 'w-5 h-5 text-sky-400') }} Envíanos un mensaje</h2>
         <form method="POST" action="{{ url_for('main.contact') }}" class="space-y-4" id="contact-form">
+        {{ m.csrf_input() }}
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label for="name" class="block text-2xs font-medium text-slate-300 mb-1">Nombre completo *</label>
@@ -125,6 +126,7 @@
         <h2 class="text-lg font-light text-white flex items-center gap-2 mb-4">{{ m.icon('bell', 'w-5 h-5 text-rose-300') }} ¿Necesitas ayuda urgente?</h2>
         <p class="text-slate-300 text-sm mb-4">Solicita que un agente te llame en los próximos 15 minutos.</p>
         <form method="POST" action="{{ url_for('main.request_callback') }}" class="space-y-3">
+        {{ m.csrf_input() }}
           <input type="hidden" name="client_id" value="{{ current_user.id }}">
           <div>
             <label for="callback_reason" class="block text-2xs font-medium text-slate-300 mb-1">Motivo de la llamada</label>

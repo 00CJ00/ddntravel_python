@@ -82,13 +82,14 @@
         {{ m.icon('sparkles', 'w-3.5 h-3.5 text-amber-300') }}<span class="hidden sm:inline">IA Predictiva</span>
       </a>
 
-      {% if current_user.role != 'client' %}
+      {% if can('bookings:create') and current_user.role != 'client' %}
       <button onclick="openModal('modal-new-booking')" class="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/10 text-xs font-bold transition-all flex items-center gap-1.5">
         {{ m.icon('plus', 'w-4 h-4 text-indigo-400') }}<span class="hidden sm:inline">Nueva Reserva</span>
       </button>
       {% endif %}
 
       <form method="POST" action="{{ url_for('main.set_theme', theme='light' if theme=='deep-space' else 'deep-space') }}">
+      {{ m.csrf_input() }}
         <button type="submit" class="p-2.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all flex items-center justify-center" title="Alternar tema">
           {{ m.icon('moon' if theme=='deep-space' else 'sun', 'w-4 h-4 ' + ('text-indigo-400' if theme=='deep-space' else 'text-amber-500')) }}
         </button>
@@ -109,6 +110,7 @@
             </div>
             {% if unread_notifications %}
             <form method="POST" action="{{ url_for('main.read_all_notifications') }}">
+            {{ m.csrf_input() }}
               <button class="text-2xs font-semibold text-indigo-400 hover:text-indigo-300">Marcar leídas</button>
             </form>
             {% endif %}
@@ -119,6 +121,7 @@
             {% else %}
             {% for n in notifications %}
             <form method="POST" action="{{ url_for('main.read_notification', notif_id=n.id) }}" class="block">
+            {{ m.csrf_input() }}
               <button class="w-full text-left p-3.5 hover:bg-white/5 transition-colors {{ 'bg-indigo-950/30' if not n.read else '' }}">
                 <div class="flex items-start justify-between gap-2">
                   <p class="text-xs font-bold text-white">{{ n.title }}</p>
@@ -243,11 +246,13 @@
       </div>
       <div class="grid grid-cols-2 gap-1.5">
         <form method="POST" action="{{ url_for('main.set_theme', theme='deep-space') }}">
+        {{ m.csrf_input() }}
           <button class="w-full py-1.5 px-2 rounded-xl text-2xs font-semibold flex items-center justify-center gap-1.5 transition-all {{ 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold' if theme=='deep-space' else 'bg-white/5 hover:bg-white/10 text-slate-400' }}">
             {{ m.icon('moon', 'w-3 h-3 text-indigo-300') }}<span>Oscuro</span>
           </button>
         </form>
         <form method="POST" action="{{ url_for('main.set_theme', theme='light') }}">
+        {{ m.csrf_input() }}
           <button class="w-full py-1.5 px-2 rounded-xl text-2xs font-semibold flex items-center justify-center gap-1.5 transition-all {{ 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold' if theme=='light' else 'bg-white/5 hover:bg-white/10 text-slate-400' }}">
             {{ m.icon('sun', 'w-3 h-3 text-amber-300') }}<span>Claro</span>
           </button>
