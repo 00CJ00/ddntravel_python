@@ -281,7 +281,8 @@
       ],
       "base_price_usd": 2450,
       "status": "Activo",
-      "rating": 4.92
+      "rating": 4.92,
+      "image_url": "https://images.unsplash.com/photo-156401395602e8438f2a6e0c8b89d?w=500&h=300&fit=crop"
     },
     {
       "id": "dest-07",
@@ -305,7 +306,8 @@
         "El Malecon",
         "Cayo Cascara"
       ],
-      "base_price_usd": 720
+      "base_price_usd": 720,
+      "image_url": "https://images.unsplash.com/photo-1566073958516-338cd6e93c8c?w=500&h=300&fit=crop"
     },
     {
       "id": "dest-08",
@@ -327,7 +329,8 @@
         "Isla Cayo Levantado",
         "Los Haïtises"
       ],
-      "base_price_usd": 850
+      "base_price_usd": 850,
+      "image_url": "https://images.unsplash.com/photo-1551659175-57ceb71f5e6e?w=500&h=300&fit=crop"
     },
     {
       "id": "dest-09",
@@ -350,7 +353,8 @@
         "Panteón de la Patria",
         "Malecon"
       ],
-      "base_price_usd": 680
+      "base_price_usd": 680,
+      "image_url": "https://images.unsplash.com/photo-156401395602e8438f2a6e0c8b89d?w=500&h=300&fit=crop"
     }
   ],
   "initial_packages": [
