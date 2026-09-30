@@ -21,8 +21,8 @@ from . import ai_service
 from .extensions import limiter
 from .view import store_view
 from .permissions import (
-    PUBLIC_ENDPOINTS, client_record, get_current_user, get_store, owned_or_404,
-    own_records, owns, permission_required,
+    PERMISSIONS, PUBLIC_ENDPOINTS, can, client_record, get_current_user,
+    get_store, owned_or_404, own_records, owns, permission_required,
 )
 
 bp = Blueprint("main", __name__)
@@ -122,6 +122,9 @@ def inject_globals():
     else:
         visible_notifs = []
     unread = [n for n in visible_notifs if not n.read]
+    # Mapa permiso → bool para que el JS decida qué botones mostrar. Es la misma
+    # matriz que aplica el servidor: solo oculta botones, nunca autoriza.
+    client_permissions = {p: can(p, current_user) for p in PERMISSIONS}
     client_side_data = {
         "clients": [c.to_dict() for c in view.clients],
         "packages": [p.to_dict() for p in view.packages],
@@ -137,6 +140,7 @@ def inject_globals():
         "notifications": visible_notifs,
         "unread_notifications": unread,
         "client_side_data": client_side_data,
+        "client_permissions": client_permissions,
     }
 
 

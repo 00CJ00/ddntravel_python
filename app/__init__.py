@@ -1,7 +1,5 @@
 """Fábrica de la aplicación Flask para DDN Travel."""
-from urllib.parse import urlparse
-
-from flask import Flask, flash, jsonify, redirect, request, url_for
+from flask import Flask, jsonify, render_template, request
 from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -21,14 +19,6 @@ def usd2_filter(value):
         return f"{float(value):,.2f}"
     except (TypeError, ValueError):
         return value
-
-
-def _same_host_referrer():
-    """Devuelve el referrer solo si apunta a este host (evita open redirect)."""
-    ref = request.referrer
-    if ref and urlparse(ref).netloc == request.host:
-        return ref
-    return None
 
 
 def create_app(config_object=None):
@@ -62,13 +52,19 @@ def create_app(config_object=None):
 
     @app.errorhandler(CSRFError)
     def handle_csrf_error(_error):
-        """Respuesta clara cuando falta o es inválido el token CSRF."""
+        """Respuesta 400 clara cuando falta o es inválido el token CSRF.
+
+        No se redirige al login: el problema no es la sesión, es el token, y un
+        302 ocultaría el ataque. La página de error invita a recargar.
+        """
         if request.path.startswith("/api/"):
             return jsonify({"success": False,
                             "error": "Token CSRF inválido o ausente."}), 400
-        flash("La sesión expiró o el formulario es inválido. Recarga la página e inténtalo de nuevo.",
-              "error")
-        return redirect(_same_host_referrer() or url_for("main.index"))
+        return render_template(
+            "error.html",
+            code=400,
+            message="La sesión expiró o el formulario es inválido. Recarga la página e inténtalo de nuevo.",
+        ), 400
 
     from . import routes
     app.register_blueprint(routes.bp)

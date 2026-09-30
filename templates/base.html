@@ -6,6 +6,8 @@
   <title>DDN Travel — Gestión Inteligente</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  {# Token CSRF para las peticiones fetch() de static/js/app.js (Flask-WTF). #}
+  <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
 <body class="min-h-screen flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white {{ 'bg-light-pro text-slate-800' if theme == 'light' else 'bg-deep-space text-slate-200' }}">
 {% with msgs = get_flashed_messages(with_categories=true) %}
@@ -316,7 +318,11 @@
 </div>
 {% endif %}
 
+{# ``client_side_data`` ya viene filtrado por StoreView: un cliente no recibe
+   datos de otros. Su eliminación completa es trabajo de la fase P7.
+   ``DDN_PERMS`` permite ocultar acciones en el HTML generado por JavaScript. #}
 <script>window.DDN_DATA = {{ client_side_data|tojson }};</script>
+<script>window.DDN_PERMS = {{ client_permissions|tojson }};</script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
