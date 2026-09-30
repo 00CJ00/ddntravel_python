@@ -57,6 +57,10 @@
 {% endif %}
 {% set route_map = {'dashboard':'main.dashboard','ai-predictive':'main.ai_predictive','bookings':'main.bookings','clients':'main.clients','packages':'main.packages','destinations':'main.destinations','hotels':'main.hotels','flights':'main.flights','transports':'main.transports','activities':'main.activities','payments':'main.payments','promotions':'main.promotions','documents':'main.documents','audit':'main.audit','client-portal':'main.client_portal','contact':'main.contact'} %}
 
+{# base.html también envuelve las páginas públicas (login, contacto). Todo el
+   cromo que depende de la sesión (menú, campana, selector de usuario) solo se
+   renderiza si hay usuario; si no, se muestra el acceso al login. #}
+{% if current_user %}
 <!-- ============================== HEADER ============================== -->
 <header class="sticky top-0 z-30 bg-black/40 backdrop-blur-2xl border-b border-white/5 px-4 sm:px-8 py-3 text-white">
   <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
@@ -195,12 +199,29 @@
     </div>
   </div>
 </header>
-
+{% else %}
+<!-- ============================== HEADER ANÓNIMO (páginas públicas) ============================== -->
+<header class="sticky top-0 z-30 bg-black/40 backdrop-blur-2xl border-b border-white/5 px-4 sm:px-8 py-3 text-white">
+  <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-lg tracking-tighter shadow-lg shadow-indigo-500/20">D</div>
+      <div>
+        <span class="font-black text-lg tracking-tight text-white">DDN TRAVEL</span>
+        <p class="text-2xs text-slate-400 font-medium hidden md:block">Gestión Inteligente de Reservas &amp; Estadísticas Predictivas</p>
+      </div>
+    </div>
+    <a href="{{ url_for('main.login') }}"
+       class="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/25">
+      Iniciar Sesión</a>
+  </div>
+</header>
+{% endif %}
 
 
 <!-- ============================== BODY LAYOUT ============================== -->
 <div class="flex-1 flex max-w-7xl w-full mx-auto pb-12">
   <!-- Sidebar -->
+  {% if current_user %}
   <aside class="w-64 shrink-0 bg-black/40 backdrop-blur-3xl border border-white/10 text-slate-300 p-5 flex-col justify-between hidden lg:flex rounded-3xl my-4 ml-4 shadow-2xl relative overflow-hidden">
     <div class="absolute top-0 right-0 w-32 h-32 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none"></div>
     <div class="space-y-6 overflow-y-auto pr-1">
@@ -273,14 +294,17 @@
       </div>
     </div>
   </aside>
+  {% endif %}
 
   <!-- Main content -->
   <main class="flex-1 p-4 sm:p-6 lg:p-8 min-w-0 overflow-y-auto">
+    {% if current_user %}
     <div class="flex lg:hidden overflow-x-auto gap-2 pb-3 mb-4 scrollbar-none border-b border-white/5">
       {% for item in items_to_render %}
       <a href="{{ url_for(route_map[item.id]) }}" class="px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all {{ 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' if active_tab == item.id else 'bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10' }}">{{ item.label.split(' ')[0] if item.label|length > 18 else item.label }}</a>
       {% endfor %}
     </div>
+    {% endif %}
 
     {% block content %}{% endblock %}
   </main>

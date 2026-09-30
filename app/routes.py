@@ -7,6 +7,7 @@ la propiedad del registro (``owned_or_404``). La matriz de permisos es la
 """
 from __future__ import annotations
 import os
+import re
 from datetime import date
 
 from flask import (
@@ -159,12 +160,25 @@ def index():
 
 
 @bp.route("/login", methods=["GET", "POST"])
+@limiter.limit(
+    lambda: current_app.config["LOGIN_RATE_LIMIT"],
+    methods=["POST"],
+    key_func=lambda: (request.remote_addr or "desconocido").lower() + "|" +
+                     (request.form.get("email") or "").strip().lower(),
+)
 def login():
+    """Inicio de sesión con límite por IP+correo (anti fuerza bruta).
+
+    El mensaje de error es genérico a propósito: no revela si el correo existe.
+    """
     error = None
     if request.method == "POST":
         f = request.form
-        user = next((u for u in store.available_users if u.email.lower() == f.get("email", "").strip().lower()), None)
-        if user and getattr(user, "password_hash", None) and check_password_hash(user.password_hash, f.get("password", "")):
+        email = (f.get("email") or "").strip().lower()
+        password = f.get("password") or ""
+        user = next((u for u in store.available_users if u.email.lower() == email), None)
+        if user is not None and getattr(user, "password_hash", None) \
+                and check_password_hash(user.password_hash, password):
             session["user_id"] = user.id
             flash(f"Bienvenido, {user.name.split(' (')[0]}.", "success")
             return redirect(url_for("main.index"))
@@ -658,6 +672,7 @@ def delete_document(doc_id):
 # ----------------------------------------------------------------------
 @bp.route("/api/ai/predictive-analytics", methods=["POST"])
 @permission_required("ai:predictive_run")
+@limiter.limit(lambda: current_app.config["AI_PREDICTIVE_RATE_LIMIT"])
 def api_predictive_analytics():
     data = request.get_json(force=True, silent=True) or {}
     timeframe = data.get("selectedTimeframe", "Próximos 6 meses")
@@ -674,6 +689,7 @@ def api_predictive_analytics():
 
 @bp.route("/api/ai/recommendations", methods=["POST"])
 @permission_required("ai:recommend")
+@limiter.limit(lambda: current_app.config["AI_GENERATIVE_RATE_LIMIT"])
 def api_recommendations():
     data = request.get_json(force=True, silent=True) or {}
     result = ai_service.get_recommendations(
@@ -685,6 +701,7 @@ def api_recommendations():
 
 @bp.route("/api/ai/generate-itinerary", methods=["POST"])
 @permission_required("ai:itinerary")
+@limiter.limit(lambda: current_app.config["AI_GENERATIVE_RATE_LIMIT"])
 def api_generate_itinerary():
     data = request.get_json(force=True, silent=True) or {}
     result = ai_service.get_itinerary(
@@ -809,7 +826,7 @@ FAQS = [
 
 
 @bp.route("/contacto", methods=["GET", "POST"])
-@limiter.limit(lambda: current_app.config["MAX_CONTACT_MESSAGE"])
+@limiter.limit(lambda: current_app.config["CONTACT_RATE_LIMIT"])
 def contact():
     if request.method == "POST":
         f = request.form
@@ -822,8 +839,8 @@ def contact():
         if not mensaje:
             flash("Escribe tu mensaje antes de enviarlo.", "error")
             return render_template("contact.html", faqs=FAQS)
-        if len(mensaje) > current_app.config["MAX_CONTACT_MESSAGE"]:
-            flash(f"El mensaje es demasiado largo (máximo {current_app.config['MAX_CONTACT_MESSAGE']} caracteres).", "error")
+        if len(mensaje) > current_app.config["CONTACT_MESSAGE_MAX_LENGTH"]:
+            flash(f"El mensaje es demasiado largo (máximo {current_app.config['CONTACT_MESSAGE_MAX_LENGTH']} caracteres).", "error")
             return render_template("contact.html", faqs=FAQS)
         store.log_action(
             "public", "Visitante Web", "CONTACT_FORM",
@@ -841,10 +858,11 @@ def contact():
 
 @bp.route("/contacto/callback", methods=["POST"])
 @permission_required("profile:callback")
+@limiter.limit(lambda: current_app.config["CONTACT_RATE_LIMIT"])
 def request_callback():
     f = request.form
-    reason = f.get("reason", "").strip()
-    phone = f.get("phone", "").strip()
+    reason = (f.get("reason") or "").strip()[:500]
+    phone = (f.get("phone") or "").strip()[:40]
     if not reason or not phone:
         flash("Completa todos los campos.", "error")
         return redirect(url_for("main.contact"))
@@ -863,18 +881,32 @@ def request_callback():
 
 
 @bp.route("/api/chat/message", methods=["POST"])
+@limiter.limit(lambda: current_app.config["CHAT_RATE_LIMIT"])
 def chat_message():
+    """Asistente virtual: solo responde con la FAQ, sin datos de clientes.
+
+    La coincidencia es por **palabras completas**: comparar subcadenas hacía que
+    «hi» encajara dentro de «which» y «hola» dentro de «holanda».
+    """
     data = request.get_json(force=True, silent=True) or {}
-    user_msg = (data.get("message") or "").strip().lower()
-    if not user_msg:
+    user_msg = (data.get("message") or "").strip()
+    if len(user_msg) > current_app.config["CHAT_MESSAGE_MAX_LENGTH"]:
+        return jsonify({
+            "success": False,
+            "reply": f"El mensaje es demasiado largo (máximo {current_app.config['CHAT_MESSAGE_MAX_LENGTH']} caracteres).",
+        }), 422
+    palabras = set(re.findall(r"[a-záéíóúñü]+", user_msg.lower()))
+    if not palabras:
         return jsonify({"reply": "Escribe algo para que pueda ayudarte.", "faq": False})
+
     for faq in FAQS:
-        keywords = faq["question"].lower().split()
-        if any(kw in user_msg for kw in keywords if len(kw) > 3):
+        # Palabras completas de la pregunta (se ignoran las de menos de 4 letras).
+        clave = {p for p in re.findall(r"[a-záéíóúñü]+", faq["question"].lower()) if len(p) > 3}
+        if clave & palabras:
             return jsonify({"reply": faq["answer"], "faq": True, "matched": faq["question"]})
-    if any(w in user_msg for w in ["hola", "buenas", "hello", "hi"]):
+    if palabras & {"hola", "buenas", "buenos", "hello", "hi", "hey", "saludos"}:
         return jsonify({"reply": "¡Hola! 👋 Soy el asistente virtual de DDN Travel. ¿En qué puedo ayudarte hoy? Puedes preguntarme sobre reservas, pagos, documentos, seguros, itinerarios...", "faq": False})
-    if any(w in user_msg for w in ["gracias", "thanks", "thx"]):
+    if palabras & {"gracias", "thanks", "thx"}:
         return jsonify({"reply": "¡De nada! 😊 Si necesitas algo más, aquí estoy. También puedes llamarnos al +1 (809) 555-0123.", "faq": False})
     return jsonify({"reply": "No tengo una respuesta exacta para eso. ¿Quieres que te conecte con un agente humano? Escribe «agente» o ve a la página de Contacto.", "faq": False, "suggest_agent": True})
 

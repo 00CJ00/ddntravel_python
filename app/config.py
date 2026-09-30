@@ -50,6 +50,14 @@ class Config:
     RATELIMIT_DEFAULT = os.environ.get("RATELIMIT_DEFAULT", "120 per minute")
     RATELIMIT_HEADERS_ENABLED = True
 
+    # Límites por endpoint. Los generativos son los más caros: se permiten pocas
+    # llamadas por minuto y por usuario/IP para no abusar de Gemini ni del servidor.
+    LOGIN_RATE_LIMIT = os.environ.get("LOGIN_RATE_LIMIT", "5 per minute")
+    CONTACT_RATE_LIMIT = os.environ.get("CONTACT_RATE_LIMIT", "5 per hour")
+    CHAT_RATE_LIMIT = os.environ.get("CHAT_RATE_LIMIT", "30 per minute")
+    AI_GENERATIVE_RATE_LIMIT = os.environ.get("AI_GENERATIVE_RATE_LIMIT", "10 per minute")
+    AI_PREDICTIVE_RATE_LIMIT = os.environ.get("AI_PREDICTIVE_RATE_LIMIT", "6 per hour")
+
     # --- Interruptores de operaciones peligrosas (P1) ---
     # /reset solo existe con ENABLE_RESET=1; /switch-user solo con
     # app.debug y ENABLE_DEV_SWITCH=1 (además de ser administrador).
