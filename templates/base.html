@@ -6,6 +6,8 @@
   <title>DDN Travel — Gestión Inteligente</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  {# Token CSRF para las peticiones fetch() de static/js/app.js (Flask-WTF). #}
+  <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
 <body class="min-h-screen flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white {{ 'bg-light-pro text-slate-800' if theme == 'light' else 'bg-deep-space text-slate-200' }}">
 {% with msgs = get_flashed_messages(with_categories=true) %}
@@ -55,6 +57,10 @@
 {% endif %}
 {% set route_map = {'dashboard':'main.dashboard','ai-predictive':'main.ai_predictive','bookings':'main.bookings','clients':'main.clients','packages':'main.packages','destinations':'main.destinations','hotels':'main.hotels','flights':'main.flights','transports':'main.transports','activities':'main.activities','payments':'main.payments','promotions':'main.promotions','documents':'main.documents','audit':'main.audit','client-portal':'main.client_portal','contact':'main.contact'} %}
 
+{# base.html también envuelve las páginas públicas (login, contacto). Todo el
+   cromo que depende de la sesión (menú, campana, selector de usuario) solo se
+   renderiza si hay usuario; si no, se muestra el acceso al login. #}
+{% if current_user %}
 <!-- ============================== HEADER ============================== -->
 <header class="sticky top-0 z-30 bg-black/40 backdrop-blur-2xl border-b border-white/5 px-4 sm:px-8 py-3 text-white">
   <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
@@ -82,13 +88,14 @@
         {{ m.icon('sparkles', 'w-3.5 h-3.5 text-amber-300') }}<span class="hidden sm:inline">IA Predictiva</span>
       </a>
 
-      {% if current_user.role != 'client' %}
+      {% if can('bookings:create') and current_user.role != 'client' %}
       <button onclick="openModal('modal-new-booking')" class="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/10 text-xs font-bold transition-all flex items-center gap-1.5">
         {{ m.icon('plus', 'w-4 h-4 text-indigo-400') }}<span class="hidden sm:inline">Nueva Reserva</span>
       </button>
       {% endif %}
 
       <form method="POST" action="{{ url_for('main.set_theme', theme='light' if theme=='deep-space' else 'deep-space') }}">
+      {{ m.csrf_input() }}
         <button type="submit" class="p-2.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all flex items-center justify-center" title="Alternar tema">
           {{ m.icon('moon' if theme=='deep-space' else 'sun', 'w-4 h-4 ' + ('text-indigo-400' if theme=='deep-space' else 'text-amber-500')) }}
         </button>
@@ -109,6 +116,7 @@
             </div>
             {% if unread_notifications %}
             <form method="POST" action="{{ url_for('main.read_all_notifications') }}">
+            {{ m.csrf_input() }}
               <button class="text-2xs font-semibold text-indigo-400 hover:text-indigo-300">Marcar leídas</button>
             </form>
             {% endif %}
@@ -119,6 +127,7 @@
             {% else %}
             {% for n in notifications %}
             <form method="POST" action="{{ url_for('main.read_notification', notif_id=n.id) }}" class="block">
+            {{ m.csrf_input() }}
               <button class="w-full text-left p-3.5 hover:bg-white/5 transition-colors {{ 'bg-indigo-950/30' if not n.read else '' }}">
                 <div class="flex items-start justify-between gap-2">
                   <p class="text-xs font-bold text-white">{{ n.title }}</p>
@@ -161,39 +170,25 @@
           <a href="{{ url_for('main.edit_profile') }}" class="text-3xs font-semibold text-emerald-400 hover:text-emerald-300 mb-2 block flex items-center gap-1">
             {{ m.icon('edit', 'w-3.5 h-3.5') }}<span>Editar Mi Perfil</span>
           </a>
+          {% else %}
+          <a href="{{ url_for('main.edit_profile') }}" class="text-3xs font-semibold text-indigo-400 hover:text-indigo-300 mb-2 block flex items-center gap-1">
+            {{ m.icon('edit', 'w-3.5 h-3.5') }}<span>Editar Perfil de Cliente</span>
+          </a>
           {% endif %}
           
           </div>
-          {% if current_user.role == 'admin' %}
-          <div class="space-y-1">
-            <span class="text-3xs font-bold text-slate-500 uppercase tracking-widest px-2 block mb-1">Cambiar Perfil / Rol (RF-01)</span>
-            <a href="{{ url_for('main.edit_profile') }}" class="text-3xs font-semibold text-indigo-400 hover:text-indigo-300 mb-2 block">Editar Perfil...</a>
-            {% for u in available_users -%}
-            {% if u.role != 'client' and not u.id.startswith('usr-g') %}
-            <form method="POST" action="{{ url_for('main.switch_user') }}">
-              <input type="hidden" name="user_id" value="{{ u.id }}">
-              <button class="w-full text-left p-2 rounded-xl text-xs font-medium flex items-center justify-between transition-colors {{ 'bg-indigo-600/20 text-indigo-300 font-bold border border-indigo-500/30' if current_user.id==u.id else 'hover:bg-white/5 text-slate-300' }}">
-                <div class="flex items-center gap-2">
-                  <img src="{{ u.avatar }}" class="w-6 h-6 rounded-full object-cover ring-1 ring-white/10">
-                  <div>
-                    <p class="leading-tight text-white">{{ u.name.split(' (')[0] }}</p>
-                    <span class="text-3xs text-slate-400">{{ 'Administrador' if u.role=='admin' else 'Agente / Empleado' }}</span>
-                  </div>
-                </div>
-                {% if current_user.id == u.id %}{{ m.icon('checkcircle', 'w-3.5 h-3.5 text-indigo-400') }}{% endif %}
-              </button>
-            </form>
-            {% endif %}
-            {%- endfor %}
-          </div>
-          {% endif %}
           <div class="pt-2 mt-2 border-t border-white/5 space-y-1">
-            <form method="POST" action="{{ url_for('main.reset_data') }}" onsubmit="return confirm('¿Restablecer todos los datos de demostración?');">
+            {% if current_user.role == 'admin' %}
+            <form method="POST" action="{{ url_for('main.reset_data') }}" onsubmit="return confirm('Se borrarán TODOS los datos y se cerrará la sesión. ¿Continuar?');">
+              {{ m.csrf_input() }}
+              <input type="hidden" name="confirm" value="RESTABLECER">
               <button class="w-full text-left p-2 rounded-xl text-xs text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 transition-colors font-medium">
                 {{ m.icon('rotateccw', 'w-3.5 h-3.5') }} Restablecer Datos Iniciales
               </button>
             </form>
+            {% endif %}
             <form method="POST" action="{{ url_for('main.logout') }}">
+              {{ m.csrf_input() }}
               <button class="w-full text-left p-2 rounded-xl text-xs text-slate-300 hover:bg-white/5 flex items-center gap-2 transition-colors font-medium">
                 {{ m.icon('logout', 'w-3.5 h-3.5') }} Cerrar Sesión
               </button>
@@ -204,12 +199,29 @@
     </div>
   </div>
 </header>
-
+{% else %}
+<!-- ============================== HEADER ANÓNIMO (páginas públicas) ============================== -->
+<header class="sticky top-0 z-30 bg-black/40 backdrop-blur-2xl border-b border-white/5 px-4 sm:px-8 py-3 text-white">
+  <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-lg tracking-tighter shadow-lg shadow-indigo-500/20">D</div>
+      <div>
+        <span class="font-black text-lg tracking-tight text-white">DDN TRAVEL</span>
+        <p class="text-2xs text-slate-400 font-medium hidden md:block">Gestión Inteligente de Reservas &amp; Estadísticas Predictivas</p>
+      </div>
+    </div>
+    <a href="{{ url_for('main.login') }}"
+       class="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/25">
+      Iniciar Sesión</a>
+  </div>
+</header>
+{% endif %}
 
 
 <!-- ============================== BODY LAYOUT ============================== -->
 <div class="flex-1 flex max-w-7xl w-full mx-auto pb-12">
   <!-- Sidebar -->
+  {% if current_user %}
   <aside class="w-64 shrink-0 bg-black/40 backdrop-blur-3xl border border-white/10 text-slate-300 p-5 flex-col justify-between hidden lg:flex rounded-3xl my-4 ml-4 shadow-2xl relative overflow-hidden">
     <div class="absolute top-0 right-0 w-32 h-32 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none"></div>
     <div class="space-y-6 overflow-y-auto pr-1">
@@ -257,11 +269,13 @@
       </div>
       <div class="grid grid-cols-2 gap-1.5">
         <form method="POST" action="{{ url_for('main.set_theme', theme='deep-space') }}">
+        {{ m.csrf_input() }}
           <button class="w-full py-1.5 px-2 rounded-xl text-2xs font-semibold flex items-center justify-center gap-1.5 transition-all {{ 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold' if theme=='deep-space' else 'bg-white/5 hover:bg-white/10 text-slate-400' }}">
             {{ m.icon('moon', 'w-3 h-3 text-indigo-300') }}<span>Oscuro</span>
           </button>
         </form>
         <form method="POST" action="{{ url_for('main.set_theme', theme='light') }}">
+        {{ m.csrf_input() }}
           <button class="w-full py-1.5 px-2 rounded-xl text-2xs font-semibold flex items-center justify-center gap-1.5 transition-all {{ 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 font-bold' if theme=='light' else 'bg-white/5 hover:bg-white/10 text-slate-400' }}">
             {{ m.icon('sun', 'w-3 h-3 text-amber-300') }}<span>Claro</span>
           </button>
@@ -280,14 +294,17 @@
       </div>
     </div>
   </aside>
+  {% endif %}
 
   <!-- Main content -->
   <main class="flex-1 p-4 sm:p-6 lg:p-8 min-w-0 overflow-y-auto">
+    {% if current_user %}
     <div class="flex lg:hidden overflow-x-auto gap-2 pb-3 mb-4 scrollbar-none border-b border-white/5">
       {% for item in items_to_render %}
       <a href="{{ url_for(route_map[item.id]) }}" class="px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all {{ 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' if active_tab == item.id else 'bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10' }}">{{ item.label.split(' ')[0] if item.label|length > 18 else item.label }}</a>
       {% endfor %}
     </div>
+    {% endif %}
 
     {% block content %}{% endblock %}
   </main>
@@ -325,7 +342,11 @@
 </div>
 {% endif %}
 
+{# ``client_side_data`` ya viene filtrado por StoreView: un cliente no recibe
+   datos de otros. Su eliminación completa es trabajo de la fase P7.
+   ``DDN_PERMS`` permite ocultar acciones en el HTML generado por JavaScript. #}
 <script>window.DDN_DATA = {{ client_side_data|tojson }};</script>
+<script>window.DDN_PERMS = {{ client_permissions|tojson }};</script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>

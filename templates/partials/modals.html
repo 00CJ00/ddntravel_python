@@ -1,6 +1,7 @@
 {% import 'macros.html' as m %}
 
 <!-- ============================== MODAL: NUEVA RESERVA ============================== -->
+{% if can('bookings:create') %}
 <div id="modal-new-booking" class="modal-overlay">
   <div class="relative w-full max-w-3xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
     <div class="px-6 py-4 bg-gradient-to-r from-sky-900/80 via-indigo-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
@@ -15,6 +16,7 @@
     </div>
 
     <form method="POST" action="{{ url_for('main.new_booking') }}" class="flex-1 overflow-y-auto p-6 space-y-5" id="new-booking-form">
+    {{ m.csrf_input() }}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Cliente Registrado</label>
@@ -111,8 +113,10 @@
     </form>
   </div>
 </div>
+{% endif %}
 
 <!-- ============================== MODAL: NUEVO CLIENTE ============================== -->
+{% if can('clients:create') %}
 <div id="modal-new-client" class="modal-overlay">
   <div class="relative w-full max-w-xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
     <div class="px-6 py-4 bg-gradient-to-r from-purple-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
@@ -120,6 +124,7 @@
       <button type="button" onclick="closeModal('modal-new-client')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
     </div>
     <form method="POST" action="{{ url_for('main.new_client') }}" class="flex-1 overflow-y-auto p-6 space-y-4">
+    {{ m.csrf_input() }}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Nombre Completo</label>
           <input required name="name" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500"></div>
@@ -159,8 +164,10 @@
     </form>
   </div>
 </div>
+{% endif %}
 
 <!-- ============================== MODAL: REGISTRAR PAGO ============================== -->
+{% if can('payments:create') %}
 <div id="modal-new-payment" class="modal-overlay">
   <div class="relative w-full max-w-lg bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
     <div class="px-6 py-4 bg-gradient-to-r from-emerald-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
@@ -168,6 +175,7 @@
       <button type="button" onclick="closeModal('modal-new-payment')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
     </div>
     <form method="POST" action="{{ url_for('main.new_payment') }}" class="flex-1 overflow-y-auto p-6 space-y-4">
+    {{ m.csrf_input() }}
       <div>
         <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Reserva Pendiente de Pago</label>
         <select name="booking_id" id="payment-booking-select" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
@@ -193,6 +201,7 @@
     </form>
   </div>
 </div>
+{% endif %}
 
 <!-- ============================== MODAL: DETALLE DE RESERVA (JS) ============================== -->
 <div id="modal-booking-detail" class="modal-overlay">
@@ -217,6 +226,7 @@
 </div>
 
 <!-- ============================== MODAL: ITINERARIO IA ============================== -->
+{% if can('ai:itinerary') %}
 <div id="modal-ai-itinerary" class="modal-overlay">
   <div class="relative w-full max-w-2xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[92vh] flex flex-col text-white">
     <div class="px-6 py-4 bg-gradient-to-r from-indigo-900/80 via-purple-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
@@ -229,6 +239,7 @@
     </div>
     <div class="flex-1 overflow-y-auto p-6 space-y-4">
       <form id="itinerary-form" class="space-y-4" onsubmit="return submitItineraryForm(event)">
+        {{ m.csrf_input() }}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Destino</label>
             <select name="destination" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
@@ -257,8 +268,10 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <!-- ============================== MODAL: RECOMENDADOR IA ============================== -->
+{% if can('ai:recommend') %}
 <div id="modal-ai-recommend" class="modal-overlay">
   <div class="relative w-full max-w-2xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[92vh] flex flex-col text-white">
     <div class="px-6 py-4 bg-gradient-to-r from-teal-900/80 via-emerald-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
@@ -271,6 +284,7 @@
     </div>
     <div class="flex-1 overflow-y-auto p-6 space-y-5">
       <form id="recommend-form" class="space-y-4" onsubmit="return submitRecommendForm(event)">
+        {{ m.csrf_input() }}
         <div>
           <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Seleccionar Perfil de Cliente</label>
           <select name="clientId" id="recommend-client" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
@@ -300,3 +314,4 @@
     </div>
   </div>
 </div>
+{% endif %}

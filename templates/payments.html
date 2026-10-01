@@ -6,7 +6,7 @@
     <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
       {{ m.icon('creditcard','w-6 h-6 text-emerald-400') }} Control de Cobros & <span class="font-bold text-emerald-400">Facturación (RF-11 / RN-03)</span>
     </h1>
-    {% if pending_bookings %}
+    {% if pending_bookings and can('payments:create') %}
     <button onclick="openModal('modal-new-payment')" class="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 flex items-center gap-2 self-start">
       {{ m.icon('plus','w-4 h-4') }} Registrar Pago</button>
     {% endif %}

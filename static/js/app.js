@@ -2,6 +2,38 @@
 // DDN TRAVEL — lógica de interfaz (modales, precios, IA)
 // ============================================================
 
+// ------------------------------------------------------------
+// CSRF: Flask-WTF exige el token en toda petición que muta datos.
+// Se lee de <meta name="csrf-token"> (inyectado en base.html) y de los
+// formularios, de modo que el mismo helper sirve para fetch y para forms.
+// ------------------------------------------------------------
+function getCsrfToken() {
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  if (meta && meta.content) return meta.content;
+  const input = document.querySelector('input[name="csrf_token"]');
+  return input ? input.value : '';
+}
+
+function csrfHeaders(extra = {}) {
+  const token = getCsrfToken();
+  return token ? { ...extra, 'X-CSRFToken': token } : { ...extra };
+}
+
+// Wrapper de fetch que aplica CSRF, normaliza errores JSON y avisa al usuario
+// cuando la sesión ha caducado (401/403) o el token es inválido (400).
+async function csrfFetch(url, options = {}) {
+  const config = { credentials: 'same-origin', ...options, headers: csrfHeaders(options.headers || {}) };
+  const response = await fetch(url, config);
+  if (response.status === 400) {
+    const detail = await response.text();
+    if (detail.includes('CSRF')) {
+      showToast('La sesión expiró. Recarga la página para continuar.', 'error');
+    }
+    return response;
+  }
+  return response;
+}
+
 function openModal(id) {
   document.getElementById(id).classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -80,7 +112,7 @@ async function applyPromoPreview() {
   recalcBookingPrice();
   const total = window._rawBookingTotal || 0;
   try {
-    const res = await fetch('/api/promo/preview', {
+    const res = await csrfFetch('/api/promo/preview', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, total })
     });
@@ -123,9 +155,10 @@ function openBookingDetail(booking) {
     </div>` : ''}
     ${b.notes ? `<div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200">${b.notes}</div>` : ''}
     <div class="flex flex-wrap gap-2 pt-2">
-      ${b.payment_status !== 'Pagado' && b.status !== 'Cancelada' ? `<button onclick="closeModal('modal-booking-detail'); document.getElementById('payment-booking-select').value='${b.id}'; openModal('modal-new-payment');" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xs font-bold">Registrar Pago</button>` : ''}
+      ${window.DDN_PERMS && window.DDN_PERMS['payments:create'] && b.payment_status !== 'Pagado' && b.status !== 'Cancelada' ? `<button onclick="closeModal('modal-booking-detail'); document.getElementById('payment-booking-select').value='${b.id}'; openModal('modal-new-payment');" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xs font-bold">Registrar Pago</button>` : ''}
       <button onclick="closeModal('modal-booking-detail'); openInvoice(window._lastBookingDetail);" class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white text-2xs font-bold">Ver Factura</button>
-      ${b.status !== 'Cancelada' && b.status !== 'Completada' ? `<form method="POST" action="/bookings/${b.id}/cancel" onsubmit="return confirm('¿Cancelar esta reserva?');" class="inline">
+      ${window.DDN_PERMS && window.DDN_PERMS['bookings:cancel'] && b.status !== 'Cancelada' && b.status !== 'Completada' ? `<form method="POST" action="/bookings/${b.id}/cancel" onsubmit="return confirm('¿Cancelar esta reserva?');" class="inline">
+        <input type="hidden" name="csrf_token" value="${getCsrfToken()}">
         <button class="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 text-2xs font-bold">Cancelar Reserva</button></form>` : ''}
     </div>
   `;
@@ -167,7 +200,7 @@ async function submitItineraryForm(e) {
   btn.textContent = 'Generando itinerario con IA...';
   const data = Object.fromEntries(new FormData(form).entries());
   try {
-    const res = await fetch('/api/ai/generate-itinerary', {
+    const res = await csrfFetch('/api/ai/generate-itinerary', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
     });
     const json = await res.json();
@@ -226,7 +259,7 @@ async function submitRecommendForm(e) {
     travelersCount: parseInt(formData.travelersCount), interests: formData.interests
   };
   try {
-    const res = await fetch('/api/ai/recommendations', {
+    const res = await csrfFetch('/api/ai/recommendations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     });
     const json = await res.json();
@@ -347,7 +380,7 @@ function initChatWidget() {
     input.value = '';
     addMessage(msg, true);
     try {
-      const res = await fetch('/api/chat/message', {
+      const res = await csrfFetch('/api/chat/message', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg })
       });

@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="es" class="theme-deep-space dark">
+{% import 'macros.html' as m %}
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -36,6 +37,7 @@
     {% endif %}
 
     <form method="POST" class="space-y-3">
+      {{ m.csrf_input() }}
       <div class="space-y-1.5">
         <label class="text-2xs font-bold text-slate-400 uppercase tracking-widest">Correo</label>
         <input name="email" type="email" required placeholder="tu@correo.com"
