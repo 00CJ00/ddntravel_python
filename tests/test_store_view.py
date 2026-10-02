@@ -66,7 +66,7 @@ def test_modales_de_cliente_no_ofrecen_reservas_ajenas(client, store, login_as):
     assert ajenas, "la semilla debe tener reservas de otros clientes"
     assert "DDN-2026-" in html, "el cliente deberia ver al menos su propia reserva"
     for reserva in ajenas:
-        assert reserva.id not in html
+        assert reserva.booking_code not in html
 
 
 def test_cliente_no_ve_hoteles_ni_vuelos_internos(client, store, login_as):

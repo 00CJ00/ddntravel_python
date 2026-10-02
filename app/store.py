@@ -1,57 +1,37 @@
 """
-DataStore: estado central de la aplicación DDN Travel.
+``DataStore``: fachada de datos de DDN Travel sobre SQLAlchemy (fase P2).
 
-Es el equivalente en Python de `AppContext.tsx`: mantiene todas las listas
-de datos en memoria y expone los métodos de negocio (crear reserva, registrar
-pago, aplicar cupón, etc.) respetando las mismas reglas de negocio (RN-01 a
-RN-05) que la versión original en React/TypeScript.
+Conserva los nombres y las firmas que usaban las rutas antes del cambio a base
+de datos (``create_booking``, ``register_payment``, ``add_client``…) y expone las
+colecciones como propiedades. Toda la lógica de acceso vive en
+``app/repositories``; aquí se orquesta y se registra la auditoría (RN-05).
+
+Ya no hay estado en memoria ni ``state.json``: cada propiedad consulta la BD y
+cada mutación se confirma contra la sesión de SQLAlchemy.
 """
 from __future__ import annotations
-import json
-import random
-import functools
+
 import datetime
-from pathlib import Path
+import random
 
-from .models.legacy import (
-    UserSession, Client, Destination, TourPackage, Hotel, Flight,
-    TouristTransport, TouristActivity, Booking, PaymentTransaction,
-    Promotion, NotificationItem, AuditLog, TravelDocument,
-    new_id, short_code,
-)
+from sqlalchemy import desc
 
-SEED_PATH = Path(__file__).parent / "seed_data.json"
-STATE_PATH = Path(__file__).parent / "state.json"
-
-# Mapeo de colecciones del store -> clase de entidad (para rehidratar al cargar)
-COLLECTION_CLASSES = {
-    "available_users": UserSession,
-    "clients": Client,
-    "destinations": Destination,
-    "packages": TourPackage,
-    "hotels": Hotel,
-    "flights": Flight,
-    "transports": TouristTransport,
-    "activities": TouristActivity,
-    "bookings": Booking,
-    "payments": PaymentTransaction,
-    "promotions": Promotion,
-    "notifications": NotificationItem,
-    "audit_logs": AuditLog,
-    "documents": TravelDocument,
-}
-
-
-def auto_save(method):
-    """Persiste el estado en disco después de cada operación que muta datos."""
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        result = method(self, *args, **kwargs)
-        self.persist()
-        return result
-    return wrapper
+from .extensions import db
+from . import models as m
+from . import seed as seed_module
+from .repositories import catalog, documents as documents_repo, notifications as notifications_repo
+from .repositories import payments as payments_repo, people, promotions as promotions_repo
+from .repositories import settings as settings_repo
+from .repositories import bookings as bookings_repo
+from .repositories.base import coerce_id, to_decimal, to_int
 
 PAYMENT_METHODS = ["Tarjeta de Crédito", "Transferencia Bancaria", "Efectivo", "Cripto", "PayPal"]
+
+# Notificaciones de módulos internos: solo las ven admin y empleados.
+INTERNAL_NOTIFICATION_TABS = {
+    "clients", "bookings", "payments", "promotions", "documents",
+    "hotels", "flights", "transports", "activities", "audit", "dashboard",
+}
 
 
 def _now_str() -> str:
@@ -63,261 +43,294 @@ def _today() -> str:
 
 
 class DataStore:
-    """Contenedor único (singleton a nivel de módulo) de todo el estado de la app."""
-
-    def __init__(self):
-        self._raw = json.loads(SEED_PATH.read_text(encoding="utf-8"))
-        self.reset_all_data(log=False)
-        if STATE_PATH.exists():
-            self._load_state()
+    """Fachada única de acceso a datos (singleton a nivel de módulo)."""
 
     # ------------------------------------------------------------------
-    # Persistencia en disco (los datos sobreviven al reinicio del servidor)
+    # Colecciones (consulta directa a la BD; sin estado en memoria)
     # ------------------------------------------------------------------
-    def persist(self) -> None:
-        """Guarda todas las colecciones en STATE_PATH como JSON."""
-        data = {attr: [item.to_dict() for item in getattr(self, attr, [])]
-                for attr in COLLECTION_CLASSES}
-        data["predictive_data"] = self.predictive_data if self.predictive_data is not None else None
-        try:
-            STATE_PATH.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        except OSError:
-            pass
+    @property
+    def available_users(self):
+        return people.list_users()
 
-    def _load_state(self):
-        """Rehidrata las entidades desde el último estado guardado en disco."""
-        try:
-            data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return
-        for attr, cls in COLLECTION_CLASSES.items():
-            items = data.get(attr, [])
-            setattr(self, attr, [cls(**item) for item in items])
-        self.predictive_data = data.get("predictive_data")
+    @property
+    def clients(self):
+        return people.list_clients()
+
+    @property
+    def destinations(self):
+        return catalog.list_destinations()
+
+    @property
+    def packages(self):
+        return catalog.list_packages()
+
+    @property
+    def hotels(self):
+        return catalog.list_hotels()
+
+    @property
+    def flights(self):
+        return catalog.list_flights()
+
+    @property
+    def transports(self):
+        return catalog.list_transports()
+
+    @property
+    def activities(self):
+        return catalog.list_activities()
+
+    @property
+    def bookings(self):
+        return bookings_repo.list_bookings()
+
+    @property
+    def payments(self):
+        return payments_repo.list_payments()
+
+    @property
+    def promotions(self):
+        return promotions_repo.list_promotions()
+
+    @property
+    def documents(self):
+        return documents_repo.list_documents()
+
+    @property
+    def notifications(self):
+        return notifications_repo.list_notifications()
+
+    @property
+    def audit_logs(self):
+        return (m.AuditLog.query
+                .order_by(desc(m.AuditLog.timestamp), desc(m.AuditLog.id)).all())
+
+    @property
+    def predictive_data(self):
+        return settings_repo.get_predictive_data()
+
+    @predictive_data.setter
+    def predictive_data(self, value):
+        settings_repo.set_predictive_data(value)
+        self._commit()
+
+    def _commit(self) -> None:
+        db.session.commit()
 
     # ------------------------------------------------------------------
-    # Carga / reinicio de datos de demostración
+    # Respaldo y reinicio de datos de demostración
     # ------------------------------------------------------------------
     def reset_all_data(self, log: bool = True) -> None:
-        raw = self._raw
-        self.available_users = [UserSession(**u) for u in raw["initial_users"]]
-        self.clients = [Client(**c) for c in raw["initial_clients"]]
-        self.destinations = [Destination(**d) for d in raw["initial_destinations"]]
-        self.packages = [TourPackage(**p) for p in raw["initial_packages"]]
-        self.hotels = [Hotel(**h) for h in raw["initial_hotels"]]
-        self.flights = [Flight(**f) for f in raw["initial_flights"]]
-        self.transports = [TouristTransport(**t) for t in raw["initial_transports"]]
-        self.activities = [TouristActivity(**a) for a in raw["initial_activities"]]
-        self.bookings = [Booking(**b) for b in raw["initial_bookings"]]
-        self.payments = [PaymentTransaction(**p) for p in raw["initial_payments"]]
-        self.promotions = [Promotion(**p) for p in raw["initial_promotions"]]
-        self.notifications = [NotificationItem(**n) for n in raw["initial_notifications"]]
-        self.audit_logs = [AuditLog(**a) for a in raw["initial_audit_logs"]]
-        self.documents = [TravelDocument(**d) for d in raw["initial_documents"]]
-        self.predictive_data = None
+        """Vacía la BD y recarga ``app/seed_data.json`` (fase P2)."""
+        seed_module.seed_database(reset=True)
         if log:
             self.log_action("system", "Sistema", "RESET_DATOS", "Sistema",
-                             "Datos de demostración restablecidos correctamente.")
+                            "Datos de demostración restablecidos correctamente.")
 
     # ------------------------------------------------------------------
     # Utilidades de búsqueda
     # ------------------------------------------------------------------
-    def get_user(self, user_id: str) -> UserSession | None:
-        return next((u for u in self.available_users if u.id == user_id), None)
+    def get_user(self, user_id):
+        return people.get_user(user_id)
 
-    def get_client(self, client_id: str) -> Client | None:
-        return next((c for c in self.clients if c.id == client_id), None)
+    def get_client(self, client_id):
+        return people.get_client(client_id)
 
-    def get_package(self, package_id: str) -> TourPackage | None:
-        return next((p for p in self.packages if p.id == package_id), None)
+    def get_package(self, package_id):
+        return catalog.get_package(package_id)
 
-    def get_booking(self, booking_id: str) -> Booking | None:
-        return next((b for b in self.bookings if b.id == booking_id), None)
+    def get_booking(self, booking_id):
+        return bookings_repo.get_booking(booking_id)
 
-    def get_hotel(self, hotel_id: str) -> Hotel | None:
-        return next((h for h in self.hotels if h.id == hotel_id), None)
+    def get_hotel(self, hotel_id):
+        return catalog.get_hotel(hotel_id)
 
-    def get_flight(self, flight_id: str) -> Flight | None:
-        return next((f for f in self.flights if f.id == flight_id), None)
+    def get_flight(self, flight_id):
+        return catalog.get_flight(flight_id)
+
+    def get_payment(self, payment_id):
+        return payments_repo.get_payment(payment_id)
 
     # ------------------------------------------------------------------
     # Auditoría y notificaciones (RN-05)
     # ------------------------------------------------------------------
-    def log_action(self, user_id: str, user_name: str, action: str, module: str, details: str) -> None:
+    def log_action(self, user_id, user_name, action, module, details) -> None:
         user = self.get_user(user_id)
-        log = AuditLog(
-            id=new_id("log"),
-            timestamp=_now_str(),
-            user_id=user_id,
+        db.session.add(m.AuditLog(
+            timestamp=datetime.datetime.utcnow(),
+            user_id=coerce_id(user_id),
             user_name=user_name,
             user_role=user.role if user else "system",
             action=action,
             module=module,
             details=details,
             ip_address=f"190.166.42.{random.randint(10, 90)}",
-        )
-        self.audit_logs.insert(0, log)
+        ))
+        self._commit()
 
-    # Notificaciones de módulos internos: solo las ven admin y empleados.
-    INTERNAL_NOTIFICATION_TABS = {
-        "clients", "bookings", "payments", "promotions", "documents",
-        "hotels", "flights", "transports", "activities", "audit", "dashboard",
-    }
-
-    def add_notification(self, title: str, message: str, ntype: str = "info",
-                         link_tab: str | None = None, roles: list | None = None) -> None:
+    def add_notification(self, title, message, ntype="info", link_tab=None,
+                         roles=None, visible_roles=None) -> None:
+        if visible_roles is not None:
+            roles = visible_roles
         if roles is None:
-            roles = ["admin", "employee"] if link_tab in self.INTERNAL_NOTIFICATION_TABS else None
-        notif = NotificationItem(
-            id=new_id("notif"), title=title, message=message, type=ntype,
-            date="Justo ahora", read=False, link_tab=link_tab, visible_roles=roles,
-        )
-        self.notifications.insert(0, notif)
+            roles = ["admin", "employee"] if link_tab in INTERNAL_NOTIFICATION_TABS else None
+        notifications_repo.create_notification(
+            title, message, ntype=ntype, link_tab=link_tab, visible_roles=roles)
+        self._commit()
 
-    def mark_notification_as_read(self, notif_id: str) -> None:
-        for n in self.notifications:
-            if n.id == notif_id:
-                n.read = True
+    def mark_notification_as_read(self, notif_id) -> None:
+        notification = notifications_repo.get_notification(notif_id)
+        if notification is not None:
+            notifications_repo.mark_read(notification)
+            self._commit()
 
     def mark_all_notifications_as_read(self) -> None:
-        for n in self.notifications:
-            n.read = True
+        notifications_repo.mark_all_read()
+        self._commit()
 
     # ------------------------------------------------------------------
     # Clientes (RF-03)
     # ------------------------------------------------------------------
-    def add_client(self, current_user, **data) -> Client:
-        client = Client(
-            id=new_id("cli"),
-            registration_date=_today(),
-            trips_count=0,
-            total_spent=0,
-            **data,
-        )
-        self.clients.insert(0, client)
+    def add_client(self, current_user, **data) -> m.Client:
+        data.setdefault("registration_date", _today())
+        data.setdefault("trips_count", 0)
+        data.setdefault("total_spent", 0)
+        client = people.create_client(data)
         self.log_action(current_user.id, current_user.name, "CREAR_CLIENTE", "Clientes",
-                         f"Registrado nuevo cliente: {client.name} ({client.category})")
-        self.add_notification("Nuevo Cliente Registrado", f"{client.name} fue añadido a la base de datos.",
-                               "info", "clients")
+                        f"Registrado nuevo cliente: {client.name} ({client.category})")
+        self.add_notification("Nuevo Cliente Registrado",
+                              f"{client.name} fue añadido a la base de datos.", "info", "clients")
         return client
 
-    def update_client(self, current_user, client_id: str, **changes) -> None:
-        client = self.get_client(client_id)
+    def update_client(self, current_user, client_id, **changes) -> None:
+        client = people.get_client(client_id)
         if client:
-            client.update(**changes)
+            people.update_client(client, changes)
+            self._commit()
             self.log_action(current_user.id, current_user.name, "MODIFICAR_CLIENTE", "Clientes",
-                             f"Actualizada información del cliente ID: {client_id}")
+                            f"Actualizada información del cliente ID: {client.id}")
 
-    def delete_client(self, current_user, client_id: str) -> bool:
-        self.clients = [c for c in self.clients if c.id != client_id]
+    def delete_client(self, current_user, client_id) -> bool:
+        client = people.get_client(client_id)
+        if client is None:
+            return False
+        db.session.delete(client)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "ELIMINAR_CLIENTE", "Clientes",
-                         f"Eliminado cliente ID: {client_id}")
+                        f"Eliminado cliente ID: {client_id}")
         return True
 
     # ------------------------------------------------------------------
-    # Catálogo genérico (destinos, hoteles, vuelos, transportes, actividades)
+    # Catálogo (destinos, hoteles, vuelos, transportes, actividades, paquetes)
     # ------------------------------------------------------------------
-    def add_destination(self, current_user, **data) -> Destination:
-        dest = Destination(id=new_id("dst"), **data)
-        self.destinations.insert(0, dest)
+    def add_destination(self, current_user, **data) -> m.Destination:
+        dest = catalog.create_destination(data)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "CREAR_DESTINO", "Destinos",
-                         f"Registrado nuevo destino: {dest.name}")
-        self.persist()
+                        f"Registrado nuevo destino: {dest.name}")
         return dest
 
-    def edit_destination(self, current_user, dest_id: str, **data) -> Destination | None:
-        dest = next((d for d in self.destinations if d.id == dest_id), None)
+    def edit_destination(self, current_user, dest_id, **data):
+        dest = catalog.get_destination(dest_id)
         if not dest:
             return None
-        for key, value in data.items():
-            if hasattr(dest, key):
-                setattr(dest, key, value)
+        catalog.update_destination(dest, data)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "EDITAR_DESTINO", "Destinos",
-                         f"Actualizado destino ID: {dest_id} - {dest.name}")
-        self.persist()
+                        f"Actualizado destino ID: {dest_id} - {dest.name}")
         return dest
 
-    def add_hotel(self, current_user, **data) -> Hotel:
-        hotel = Hotel(id=new_id("htl"), **data)
-        self.hotels.insert(0, hotel)
+    def add_hotel(self, current_user, **data) -> m.Hotel:
+        room_types = data.pop("room_types", None)
+        hotel = catalog.create_hotel(data, room_types=room_types)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "CREAR_HOTEL", "Hoteles",
-                         f"Registrado nuevo hotel: {hotel.name}")
+                        f"Registrado nuevo hotel: {hotel.name}")
         return hotel
 
-    def delete_hotel(self, current_user, hotel_id: str) -> bool:
-        self.hotels = [h for h in self.hotels if h.id != hotel_id]
+    def delete_hotel(self, current_user, hotel_id) -> bool:
+        hotel = catalog.get_hotel(hotel_id)
+        if hotel is None:
+            return False
+        db.session.delete(hotel)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "ELIMINAR_HOTEL", "Hoteles",
-                         f"Eliminado hotel ID: {hotel_id}")
+                        f"Eliminado hotel ID: {hotel_id}")
         return True
 
-    def add_flight(self, current_user, **data) -> Flight:
-        flight = Flight(id=new_id("flt"), **data)
-        self.flights.insert(0, flight)
+    def add_flight(self, current_user, **data) -> m.Flight:
+        flight = catalog.create_flight(data)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "CREAR_VUELO", "Vuelos",
-                         f"Registrado nuevo vuelo: {flight.airline} {flight.flight_number}")
+                        f"Registrado nuevo vuelo: {flight.airline} {flight.flight_number}")
         return flight
 
-    def delete_flight(self, current_user, flight_id: str) -> bool:
-        self.flights = [f for f in self.flights if f.id != flight_id]
+    def delete_flight(self, current_user, flight_id) -> bool:
+        flight = catalog.get_flight(flight_id)
+        if flight is None:
+            return False
+        db.session.delete(flight)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "ELIMINAR_VUELO", "Vuelos",
-                         f"Eliminado vuelo ID: {flight_id}")
+                        f"Eliminado vuelo ID: {flight_id}")
         return True
 
-    def add_transport(self, current_user, **data) -> TouristTransport:
-        transport = TouristTransport(id=new_id("trn"), **data)
-        self.transports.insert(0, transport)
+    def add_transport(self, current_user, **data) -> m.Transport:
+        transport = catalog.create_transport(data)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "CREAR_TRANSPORTE", "Transporte",
-                         f"Registrada unidad de transporte: {transport.vehicle_model}")
+                        f"Registrada unidad de transporte: {transport.vehicle_model}")
         return transport
 
-    def delete_transport(self, current_user, transport_id: str) -> bool:
-        self.transports = [t for t in self.transports if t.id != transport_id]
+    def delete_transport(self, current_user, transport_id) -> bool:
+        transport = catalog.get_transport(transport_id)
+        if transport is None:
+            return False
+        db.session.delete(transport)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "ELIMINAR_TRANSPORTE", "Transporte",
-                         f"Eliminada unidad de transporte ID: {transport_id}")
+                        f"Eliminada unidad de transporte ID: {transport_id}")
         return True
 
-    def add_activity(self, current_user, **data) -> TouristActivity:
-        activity = TouristActivity(id=short_code("act"), **data)
-        self.activities.append(activity)
+    def add_activity(self, current_user, **data) -> m.Activity:
+        activity = catalog.create_activity(data)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "CREAR_ACTIVIDAD", "Actividades",
-                         f"Registrada actividad turística: {activity.title}")
+                        f"Registrada actividad turística: {activity.title}")
         return activity
 
-    def delete_activity(self, current_user, activity_id: str) -> bool:
+    def delete_activity(self, current_user, activity_id) -> bool:
         if current_user.role != "admin":
             return False
-        self.activities = [a for a in self.activities if a.id != activity_id]
+        activity = catalog.get_activity(activity_id)
+        if activity is None:
+            return False
+        db.session.delete(activity)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "ELIMINAR_ACTIVIDAD", "Actividades",
-                         f"Eliminada actividad ID: {activity_id}")
+                        f"Eliminada actividad ID: {activity_id}")
         return True
 
-    # ------------------------------------------------------------------
-    # Paquetes (RF-05)
-    # ------------------------------------------------------------------
-    def add_package(self, current_user, **data) -> TourPackage:
-        pkg = TourPackage(id=new_id("pkg"), **data)
-        self.packages.insert(0, pkg)
+    def add_package(self, current_user, **data) -> m.Package:
+        package = catalog.create_package(data)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "CREAR_PAQUETE", "Paquetes",
-                         f"Registrado nuevo paquete: {pkg.title}")
-        return pkg
+                        f"Registrado nuevo paquete: {package.title}")
+        return package
 
     # ------------------------------------------------------------------
-    # Reservas — RN-01 (disponibilidad), RN-02 (cliente obligatorio),
-    # RN-03 (pago antes de confirmar)
+    # Reservas — RN-01 (disponibilidad), RN-02 (cliente), RN-03 (pago)
     # ------------------------------------------------------------------
     def create_booking(self, current_user, *, client_id, client_name, client_email,
-                        package_id=None, package_name="", destination_name="",
-                        departure_date="", return_date="", travelers=1, passengers=None,
-                        hotel_id=None, hotel_name=None, flight_id=None, flight_number=None,
-                        total_price=0.0, notes="", initial_payment=0.0,
-                        payment_method="Tarjeta de Crédito"):
-        # RN-02: toda reserva debe estar asociada a un cliente válido
+                       package_id=None, package_name="", destination_name="",
+                       departure_date="", return_date="", travelers=1, passengers=None,
+                       hotel_id=None, hotel_name=None, flight_id=None, flight_number=None,
+                       total_price=0.0, notes="", initial_payment=0.0,
+                       payment_method="Tarjeta de Crédito"):
         if not client_id or not client_name:
             return {"success": False,
                     "message": "Regla de Negocio (RN-02): Toda reserva debe estar asociada a un cliente registrado válido."}
 
-        # RN-01: no se puede reservar sin disponibilidad
         selected_pkg = self.get_package(package_id) if package_id else None
         if selected_pkg and selected_pkg.available_slots < travelers:
             return {"success": False,
@@ -325,178 +338,195 @@ class DataStore:
                                 f'"{selected_pkg.title}" solo cuenta con {selected_pkg.available_slots} cupos '
                                 f'disponibles para {travelers} viajeros solicitados.')}
 
-        booking_year = datetime.date.today().year
-        booking_code = f"DDN-{booking_year}-{random.randint(100, 999)}"
-        booking_id = new_id("bkg")
-
+        initial_payment = to_decimal(initial_payment)
+        total_price = to_decimal(total_price)
         is_full_paid = initial_payment >= total_price and total_price > 0
         is_partial_paid = 0 < initial_payment < total_price
-
         payment_status = "Pagado" if is_full_paid else ("Parcial" if is_partial_paid else "Pendiente")
         status = "Confirmada" if is_full_paid else "Pendiente"
 
-        booking = Booking(
-            id=booking_id, booking_code=booking_code, client_id=client_id, client_name=client_name,
-            client_email=client_email, package_id=package_id, package_name=package_name,
-            destination_name=destination_name, departure_date=departure_date, return_date=return_date,
-            travelers=travelers, passengers=passengers or [], hotel_id=hotel_id, hotel_name=hotel_name,
-            flight_id=flight_id, flight_number=flight_number, total_price=total_price,
-            amount_paid=initial_payment, payment_status=payment_status, status=status,
-            created_at=_today(), notes=notes,
-        )
-
+        # RN-01: descuento atómico de cupos (ningún otro cobro al confirmar).
         if selected_pkg:
-            selected_pkg.reserve_slots(travelers)
+            if not catalog.reserve_slots_atomic(selected_pkg.id, travelers):
+                self._rollback()
+                return {"success": False,
+                        "message": (f'Regla de Negocio (RN-01): No hay disponibilidad suficiente. El paquete '
+                                    f'"{selected_pkg.title}" ya no cuenta con cupos para {travelers} viajeros.')}
 
-        client = self.get_client(client_id)
-        if client:
-            client.register_trip(total_price)
+        booking = bookings_repo.create_booking_record(
+            client_id=client_id, package_id=package_id or None, package_name=package_name,
+            destination_name=destination_name, hotel_id=hotel_id or None, hotel_name=hotel_name,
+            flight_id=flight_id or None, flight_number=flight_number,
+            departure_date=departure_date, return_date=return_date, travelers=travelers,
+            total_price=total_price, amount_paid=initial_payment, status=status,
+            payment_status=payment_status, notes=notes, created_by=coerce_id(current_user.id),
+        )
+        bookings_repo.add_passengers(booking, passengers)
 
-        self.bookings.insert(0, booking)
+        client = people.get_client(client_id)
+        people.register_trip(client, total_price)
 
         if initial_payment > 0:
-            payment = PaymentTransaction(
-                id=new_id("pay"), receipt_number=f"REC-{booking_year}-{random.randint(1000, 9999)}",
-                booking_id=booking_id, booking_code=booking_code, client_name=client_name,
-                amount=initial_payment, payment_method=payment_method,
-                transaction_ref=f"TX_{random.randint(100000, 999999)}", status="Completado",
-                date=_now_str(), invoice_number=f"FAC-DDN-{random.randint(10000, 99999)}",
-            )
-            self.payments.insert(0, payment)
+            payments_repo.create_payment(
+                booking.id, initial_payment, payment_method, status="Completado")
 
+        self._commit()
         self.log_action(current_user.id, current_user.name, "NUEVA_RESERVA", "Reservas",
-                         f"Reserva {booking_code} creada para {client_name} ({destination_name}) "
-                         f"por un total de ${total_price} USD.")
+                        f"Reserva {booking.booking_code} creada para {client_name} ({destination_name}) "
+                        f"por un total de ${total_price} USD.")
         self.add_notification("Nueva Reserva Confirmada",
-                               f"Reserva {booking_code} generada para {client_name}. Total: ${total_price} USD.",
-                               "success", "bookings")
+                              f"Reserva {booking.booking_code} generada para {client_name}. "
+                              f"Total: ${total_price} USD.", "success", "bookings")
+        return {"success": True, "message": f"¡Reserva {booking.booking_code} registrada con éxito!",
+                "booking": booking}
 
-        return {"success": True, "message": f"¡Reserva {booking_code} registrada con éxito!", "booking": booking}
-
-    def update_booking_status(self, current_user, booking_id: str, status: str) -> None:
+    def update_booking_status(self, current_user, booking_id, status) -> None:
         booking = self.get_booking(booking_id)
         if booking:
-            booking.status = status
+            bookings_repo.set_status(booking, status)
+            self._commit()
             self.log_action(current_user.id, current_user.name, "ACTUALIZAR_ESTADO_RESERVA", "Reservas",
-                             f"Reserva ID: {booking_id} actualizada a estado: {status}")
+                            f"Reserva ID: {booking_id} actualizada a estado: {status}")
 
-    def cancel_booking(self, current_user, booking_id: str, reason: str = "") -> bool:
+    def cancel_booking(self, current_user, booking_id, reason="") -> bool:
         booking = self.get_booking(booking_id)
         if not booking:
             return False
-        pkg = self.get_package(booking.package_id) if getattr(booking, "package_id", None) else None
-        if pkg:
-            pkg.release_slots(booking.travelers)
-        booking.status = "Cancelada"
-        booking.notes = f"{getattr(booking, 'notes', '') or ''} [Cancelada: {reason or 'Por solicitud'}]"
+        if booking.status == "Cancelada":
+            return True  # idempotente: no vuelve a liberar cupos
+        if booking.package_id:
+            catalog.release_slots(booking.package_id, booking.travelers)
+        bookings_repo.cancel(booking, reason)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "CANCELAR_RESERVA", "Reservas",
-                         f"Reserva {booking.booking_code} cancelada. Motivo: {reason or 'N/A'}")
+                        f"Reserva {booking.booking_code} cancelada. Motivo: {reason or 'N/A'}")
         self.add_notification("Reserva Cancelada",
-                               f"La reserva {booking.booking_code} fue cancelada. Se han restaurado los cupos.",
-                               "warning", "bookings")
+                              f"La reserva {booking.booking_code} fue cancelada. Se han restaurado los cupos.",
+                              "warning", "bookings")
         return True
 
     # ------------------------------------------------------------------
     # Pagos & facturación (RF-11, RN-03)
     # ------------------------------------------------------------------
-    def register_payment(self, current_user, booking_id: str, amount: float, method: str, ref_number: str = ""):
+    def register_payment(self, current_user, booking_id, amount, method, ref_number=""):
         booking = self.get_booking(booking_id)
         if not booking:
             return {"success": False, "message": "Reserva no encontrada."}
+        amount = to_decimal(amount)
         if amount <= 0:
             return {"success": False, "message": "El monto del pago debe ser mayor a 0."}
 
-        booking.apply_payment(amount)
-
-        receipt_number = f"REC-{datetime.date.today().year}-{random.randint(1000, 9999)}"
-        invoice_number = f"FAC-DDN-{random.randint(10000, 99999)}"
-
-        payment = PaymentTransaction(
-            id=new_id("pay"), receipt_number=receipt_number, booking_id=booking.id,
-            booking_code=booking.booking_code, client_name=booking.client_name, amount=amount,
-            payment_method=method, transaction_ref=ref_number or f"TX_{random.randint(100000, 999999)}",
-            status="Completado", date=_now_str(), invoice_number=invoice_number,
-        )
-        self.payments.insert(0, payment)
+        bookings_repo.apply_payment(booking, amount)
+        payment = payments_repo.create_payment(booking.id, amount, method, reference=ref_number)
 
         if booking.is_fully_paid():
-            voucher = TravelDocument(
-                id=new_id("doc"), client_id=booking.client_id, client_name=booking.client_name,
-                doc_type="Voucher de Reserva", file_name=f"Voucher_Oficial_{booking.booking_code}.pdf",
-                file_size="1.4 MB", upload_date=_today(), status="Válido",
-            )
-            self.documents.insert(0, voucher)
+            documents_repo.create_document({
+                "client_id": booking.client_id, "doc_type": "Voucher de Reserva",
+                "file_name": f"Voucher_Oficial_{booking.booking_code}.pdf", "status": "Válido",
+                "upload_date": _today(),
+            })
 
+        self._commit()
         self.log_action(current_user.id, current_user.name, "PAGO_REGISTRADO", "Pagos & Facturación",
-                         f"Registrado pago de ${amount} USD para reserva {booking.booking_code} "
-                         f"mediante {method}. Factura: {invoice_number}")
-        self.add_notification("Pago Recibido", f"Se registró pago de ${amount} USD para la reserva {booking.booking_code}.",
-                               "success", "payments")
-
-        return {"success": True, "message": f"Pago de ${amount} USD registrado exitosamente. Recibo: {receipt_number}",
+                        f"Registrado pago de ${amount} USD para reserva {booking.booking_code} "
+                        f"mediante {method}. Factura: {payment.invoice_number}")
+        self.add_notification("Pago Recibido",
+                              f"Se registró pago de ${amount} USD para la reserva {booking.booking_code}.",
+                              "success", "payments")
+        return {"success": True,
+                "message": f"Pago de ${amount} USD registrado exitosamente. Recibo: {payment.receipt_number}",
                 "payment": payment}
 
     # ------------------------------------------------------------------
     # Promociones (RF-12)
     # ------------------------------------------------------------------
-    def add_promotion(self, current_user, **data) -> Promotion:
-        promo = Promotion(id=short_code("prm"), current_uses=0, **data)
-        self.promotions.insert(0, promo)
+    def add_promotion(self, current_user, **data) -> m.Promotion:
+        promo = promotions_repo.create_promotion(data)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "CREAR_PROMOCION", "Promociones",
-                         f"Creado cupón {promo.code} con {promo.discount_percentage}% de descuento.")
+                        f"Creado cupón {promo.code} con {promo.discount_percentage}% de descuento.")
         return promo
 
-    def toggle_promotion_status(self, promo_id: str) -> None:
-        for p in self.promotions:
-            if p.id == promo_id:
-                p.active = not p.active
+    def toggle_promotion_status(self, promo_id) -> None:
+        promo = promotions_repo.get_promotion(promo_id)
+        if promo is not None:
+            promotions_repo.toggle(promo)
+            self._commit()
 
-    def apply_promo_code(self, code: str, total_price: float) -> dict:
-        clean_code = (code or "").strip().upper()
-        promo = next((p for p in self.promotions if p.code.upper() == clean_code and p.active), None)
+    def apply_promo_code(self, code, total_price) -> dict:
+        total_price = to_decimal(total_price)
+        promo = promotions_repo.find_active_by_code(code)
         if not promo:
-            return {"valid": False, "discount_percentage": 0, "final_price": total_price,
-                     "message": "Código de promoción no válido o expirado."}
-        if promo.current_uses >= promo.max_uses:
-            return {"valid": False, "discount_percentage": 0, "final_price": total_price,
-                     "message": "Este código ha alcanzado el límite máximo de usos."}
+            return {"valid": False, "discount_percentage": 0, "final_price": float(total_price),
+                    "message": "Código de promoción no válido o expirado."}
+        if (promo.current_uses or 0) >= (promo.max_uses or 0):
+            return {"valid": False, "discount_percentage": 0, "final_price": float(total_price),
+                    "message": "Este código ha alcanzado el límite máximo de usos."}
         final_price, discount = promo.apply_to(total_price)
-        return {"valid": True, "discount_percentage": promo.discount_percentage, "final_price": final_price,
+        return {"valid": True, "discount_percentage": promo.discount_percentage,
+                "final_price": float(final_price),
                 "message": f"¡Cupón {promo.code} aplicado! {promo.discount_percentage}% de descuento "
-                           f"(-${discount:.2f} USD)."}
+                           f"(-${float(discount):.2f} USD)."}
 
     # ------------------------------------------------------------------
     # Documentos (RF-17)
     # ------------------------------------------------------------------
-    def add_document(self, current_user, **data) -> TravelDocument:
-        doc = TravelDocument(id=new_id("doc"), upload_date=_today(), **data)
-        self.documents.insert(0, doc)
+    def add_document(self, current_user, **data) -> m.TravelDocument:
+        doc = documents_repo.create_document(data)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "SUBIR_DOCUMENTO", "Documentos",
-                         f"Cargado documento {doc.file_name} ({getattr(doc, 'doc_type', '')}) para {doc.client_name}")
+                        f"Cargado documento {doc.file_name} ({doc.doc_type}) para cliente {doc.client_id}")
         return doc
 
-    def delete_document(self, current_user, doc_id: str) -> bool:
+    def delete_document(self, current_user, doc_id) -> bool:
         if current_user.role not in ("admin", "employee"):
             return False
-        self.documents = [d for d in self.documents if d.id != doc_id]
+        doc = documents_repo.get_document(doc_id)
+        if doc is None:
+            return False
+        documents_repo.delete_document(doc)
+        self._commit()
         self.log_action(current_user.id, current_user.name, "ELIMINAR_DOCUMENTO", "Documentos",
-                         f"Documento ID: {doc_id} eliminado.")
+                        f"Documento ID: {doc_id} eliminado.")
         return True
 
+    # ------------------------------------------------------------------
+    # Usuarios / sesión de Google
+    # ------------------------------------------------------------------
+    def add_user(self, user: m.User) -> m.User:
+        db.session.add(user)
+        self._commit()
+        return user
 
-# Aplica persistencia automática a todas las operaciones que mutan datos.
-for _method_name in [
-    "add_client", "update_client", "delete_client",
-    "add_destination", "add_hotel", "delete_hotel", "add_flight", "delete_flight",
-    "add_transport", "delete_transport", "add_activity", "delete_activity",
-    "add_package", "create_booking", "update_booking_status", "cancel_booking",
-    "register_payment", "add_promotion", "toggle_promotion_status",
-    "add_document", "delete_document",
-    "log_action", "add_notification",
-    "mark_notification_as_read", "mark_all_notifications_as_read",
-]:
-    if hasattr(DataStore, _method_name):
-        setattr(DataStore, _method_name, auto_save(getattr(DataStore, _method_name)))
+    def find_or_create_google_user(self, email, name, avatar="") -> m.User:
+        """Reutiliza o crea el usuario cliente de Google y su ficha de cliente."""
+        user = people.get_user_by_email(email)
+        if user is None:
+            user = people.create_user({
+                "name": f"{name} (Cliente Viajero)", "email": email, "role": "client",
+                "department": "Cliente Registrado", "avatar": avatar or "", "google_id": email,
+            })
+        elif avatar:
+            user.avatar = avatar
+        client = people.get_client_by_email(email)
+        if client is None:
+            client = people.create_client({
+                "name": name, "email": email, "phone": "+1 (000) 000-0000",
+                "document_id": f"GGL-{email}", "category": "Estándar", "status": "Activo",
+                "trips_count": 0, "total_spent": 0, "registration_date": _today(),
+                "preferred_destinations": [],
+            })
+        if not user.client_id:
+            user.client_id = client.id
+        self._commit()
+        return user
+
+    # ------------------------------------------------------------------
+    # Interno
+    # ------------------------------------------------------------------
+    def _rollback(self) -> None:
+        db.session.rollback()
+
 
 # Instancia única compartida por toda la aplicación (equivalente al Provider de React)
 store = DataStore()

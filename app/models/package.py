@@ -27,7 +27,7 @@ class Package(BaseEntity, db.Model):
     category = db.Column(db.String(60), index=True)
     featured = db.Column(db.Boolean, default=False)
     inclusions = db.Column(db.JSON, default=list)
-    itinerary_summary = db.Column(db.Text)
+    itinerary_summary = db.Column(db.JSON, default=list)
     description = db.Column(db.Text)
     departure_dates = db.Column(db.JSON, default=list)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)

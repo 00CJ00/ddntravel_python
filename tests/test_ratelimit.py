@@ -16,7 +16,7 @@ from conftest import (
 # ----------------------------------------------------------------------
 # Rate limiting
 # ----------------------------------------------------------------------
-def test_login_se_bloquea_tras_varios_intentos(client_ratelimit, store):
+def test_login_se_bloquea_tras_varios_intentos(client_ratelimit):
     """5/min por IP+correo: el sexto intento devuelve 429."""
     token = read_csrf_token(client_ratelimit, "/login")
     codigos = []
@@ -29,7 +29,7 @@ def test_login_se_bloquea_tras_varios_intentos(client_ratelimit, store):
     assert 429 in codigos, f"el login nunca devolvio 429 (codigos: {codigos})"
 
 
-def test_login_exito_no_consume_el_limite_del_ataque(client_ratelimit, store):
+def test_login_exito_no_consume_el_limite_del_ataque(client_ratelimit):
     """El límite es por IP+correo: atacar a uno no bloquea a otro usuario."""
     token = read_csrf_token(client_ratelimit, "/login")
     for _ in range(7):
@@ -42,13 +42,13 @@ def test_login_exito_no_consume_el_limite_del_ataque(client_ratelimit, store):
     assert respuesta.status_code == 302, "un intento legitimo fue bloqueado por el de otro"
 
 
-def test_get_login_no_consume_el_limite(client_ratelimit, store):
+def test_get_login_no_consume_el_limite(client_ratelimit):
     """El límite es solo de POST: cargar el formulario nunca se bloquea."""
     for _ in range(10):
         assert client_ratelimit.get("/login").status_code == 200
 
 
-def test_chat_tiene_limite(client_ratelimit, store, login_as):
+def test_chat_tiene_limite(client_ratelimit, login_as):
     login_as(client_ratelimit, EMPLOYEE_EMAIL)
     codigos = set()
     for i in range(40):

@@ -1,26 +1,10 @@
 """Tests de la lógica de negocio (reglas RN-01 a RN-03) del DataStore."""
-import os
-import sys
-
-import pytest
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-import app.store as store_module
-from app.models.legacy import UserSession
-
-
-@pytest.fixture
-def store(tmp_path, monkeypatch):
-    """DataStore limpio a partir de los datos de semilla, sin tocar el estado real."""
-    monkeypatch.setattr(store_module, "STATE_PATH", tmp_path / "state.json")
-    st = store_module.DataStore()
-    st.reset_all_data(log=False)
-    return st
+from app.extensions import db
+from app.models import Booking, User
 
 
 def _admin():
-    return UserSession(id="usr-admin-1", name="Carlos Mendoza", role="admin")
+    return User(name="Carlos Mendoza", role="admin")
 
 
 def test_reset_data_carga_las_semillas(store):
@@ -95,13 +79,14 @@ def test_rn03_registrar_pago_completa_reserva(store):
     assert booking.payment_status == "Pagado"
 
 
-def test_persistencia_sobrevive_al_reinicio(store):
+def test_persistencia_en_base_de_datos(store):
     cli = store.clients[0]
-    store.create_booking(
+    result = store.create_booking(
         _admin(),
         client_id=cli.id, client_name=cli.name, client_email=cli.email,
         travelers=1, total_price=900)
-    # Simula el reinicio: queda la misma ruta de estado (tmp_path) y se vuelve a cargar
-    reloaded = store_module.DataStore()
-    assert len(reloaded.bookings) == len(store.bookings)
-    assert reloaded.bookings[0].total_price == 900
+    codigo = result["booking"].booking_code
+    # La reserva queda confirmada en la BD, no solo en memoria.
+    db.session.remove()
+    assert Booking.query.filter_by(booking_code=codigo).first() is not None
+    assert any(b.booking_code == codigo for b in store.bookings)
