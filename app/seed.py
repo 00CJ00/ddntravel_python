@@ -72,7 +72,11 @@ def load_raw() -> dict:
 
 
 def clear_database() -> None:
-    """Elimina todas las filas respetando el orden de dependencias."""
+    """Elimina todas las filas respetando el orden de dependencias.
+
+    La tabla de auditoría NUNCA se vacía: ``AuditLog`` es de solo inserción
+    (RN-05), así que el reset de datos de desarrollo conserva el historial.
+    """
     from . import models as m
 
     for model in (
@@ -83,7 +87,7 @@ def clear_database() -> None:
         m.RoomType, m.Hotel, m.Package, m.Activity,
         m.Transport, m.Flight, m.Destination,
         m.User, m.Client,
-        m.NcfSequence, m.Setting, m.AuditLog,
+        m.NcfSequence, m.Setting,
     ):
         db.session.query(model).delete()
     db.session.flush()
@@ -273,12 +277,15 @@ def seed_database(reset: bool = False) -> bool:
         ))
 
     # --- Auditoría ---
-    for a in raw["initial_audit_logs"]:
-        add(m.AuditLog(
-            timestamp=_datetime(a.get("timestamp")), user_id=fk("users", a.get("user_id")),
-            user_name=a.get("user_name"), user_role=a.get("user_role"), action=a.get("action"),
-            module=a.get("module"), details=a.get("details"), ip_address=a.get("ip_address"),
-        ))
+    # Solo se siembra si el historial está vacío: la auditoría es de solo
+    # inserción y no debe duplicarse al re-sembrar los datos de desarrollo.
+    if db.session.query(m.AuditLog).count() == 0:
+        for a in raw["initial_audit_logs"]:
+            add(m.AuditLog(
+                timestamp=_datetime(a.get("timestamp")), user_id=fk("users", a.get("user_id")),
+                user_name=a.get("user_name"), user_role=a.get("user_role"), action=a.get("action"),
+                module=a.get("module"), details=a.get("details"), ip_address=a.get("ip_address"),
+            ))
 
     db.session.commit()
     return True

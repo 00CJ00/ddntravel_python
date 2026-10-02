@@ -32,6 +32,14 @@ class AuditLog(BaseEntity, db.Model):
 
 
 # RN-05: la auditoría es de solo inserción; ningún camino actualiza ni borra.
+#
+# IMPORTANTE: estos guards ORM (``before_update``/``before_delete``) solo cubren
+# operaciones por instancia (``db.session.delete(obj)``, cambios de atributos).
+# NO protegen contra un borrado masivo con ``Query.delete()`` (bulk delete), que
+# se salta los eventos del mapper. La protección real contra la pérdida del
+# historial es la exclusión explícita de ``AuditLog`` en
+# ``app/seed.py::clear_database()``. Si añades otro borrado masivo en el futuro,
+# debes excluir también esta tabla allí.
 @event.listens_for(AuditLog, "before_update")
 def _audit_no_update(mapper, connection, target):  # pragma: no cover - guarda defensiva
     raise ValueError("Los registros de auditoría son de solo inserción (no se actualizan).")

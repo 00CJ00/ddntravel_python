@@ -174,15 +174,23 @@ def login():
         if user is not None and getattr(user, "password_hash", None) \
                 and check_password_hash(user.password_hash, password):
             session["user_id"] = user.id
+            store.record_event("INICIO_SESION", "Autenticación", user=user,
+                               details=f"Inicio de sesión correcto de {user.email}.")
             flash(f"Bienvenido, {user.name.split(' (')[0]}.", "success")
             return redirect(url_for("main.index"))
         error = "Correo o contraseña incorrectos."
+        store.record_event("INICIO_SESION_FALLIDO", "Autenticación", user_name=email or "(vacío)",
+                           details=f"Intento de inicio de sesión fallido para {email or '(vacío)'}.")
     return render_template("login.html", error=error, google_enabled=google_bp_enabled)
 
 
 @bp.route("/logout", methods=["POST"])
 @permission_required("session:logout")
 def logout():
+    user = get_current_user()
+    if user is not None:
+        store.record_event("CIERRE_SESION", "Autenticación", user=user,
+                           details=f"Cierre de sesión de {user.email}.")
     session.clear()
     for key in ("google_token", "google_oauth_state"):
         session.pop(key, None)
@@ -612,7 +620,7 @@ def new_promotion():
 @bp.route("/promotions/<int:promo_id>/toggle", methods=["POST"])
 @permission_required("promotions:toggle")
 def toggle_promotion(promo_id):
-    store.toggle_promotion_status(promo_id)
+    store.toggle_promotion_status(get_current_user(), promo_id)
     return redirect(url_for("main.promotions"))
 
 
@@ -671,12 +679,7 @@ def api_predictive_analytics():
     data = request.get_json(force=True, silent=True) or {}
     timeframe = data.get("selectedTimeframe", "Próximos 6 meses")
     result = ai_service.get_predictive_analytics(store.clients, store.bookings, store.packages, timeframe)
-    store.predictive_data = result
-    store.log_action(get_current_user().id, get_current_user().name, "EJECUCIÓN_PREDICCIÓN_IA",
-                      "Motor IA Predictivo", f"Análisis de comportamiento de compra generado para periodo: {timeframe}")
-    store.add_notification("Estadísticas Predictivas Actualizadas",
-                            "El motor de Inteligencia Artificial completó la predicción de demanda y propensión de compra.",
-                            "success", "ai-predictive")
+    store.record_prediction(get_current_user(), timeframe, result)
     return jsonify({"success": True, "data": result})
 
 
@@ -768,6 +771,8 @@ def google_authorized():
     name = data.get("name", email.split("@")[0])
     user = _find_or_create_client_session(email, name, avatar=data.get("picture"))
     session["user_id"] = user.id
+    store.record_event("INICIO_SESION", "Autenticación", user=user,
+                       details=f"Inicio de sesión con Google de {user.email}.")
     flash(f"Bienvenido, {user.name.split(' (')[0]} (acceso con Google).", "success")
     return redirect(url_for("main.client_portal"))
 
