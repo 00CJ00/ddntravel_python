@@ -7,17 +7,18 @@ from __future__ import annotations
 
 import os
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import app.permissions as permissions  # noqa: E402
-from app.models.legacy import UserSession  # noqa: E402
 
 
-def _user(role: str, user_id: str = "usr-x", email: str = "x@example.com") -> UserSession:
-    return UserSession(id=user_id, name=f"Usuario {role}", email=email, role=role)
+def _user(role: str, user_id: str = "usr-x", email: str = "x@example.com") -> SimpleNamespace:
+    """Usuario de prueba: la autorización solo depende de role/id/email."""
+    return SimpleNamespace(id=user_id, name=f"Usuario {role}", email=email, role=role)
 
 
 # ----------------------------------------------------------------------

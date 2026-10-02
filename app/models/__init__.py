@@ -1,8 +1,9 @@
 """Modelos ORM de DDN Travel (fase P2).
 
 Un módulo por agregado. Todos heredan de ``BaseEntity`` (utilidades comunes) y de
-``db.Model`` (SQLAlchemy). La clase base heredada de la etapa anterior vive en
-``app.models.legacy`` mientras se completan los pasos 3 a 5.
+``db.Model`` (SQLAlchemy). Las antiguas entidades en memoria
+(``app.models.legacy``) se eliminaron al completar el paso 5: la única fuente de
+verdad son estos modelos.
 """
 from .base import BaseEntity, utcnow
 from .user import User
