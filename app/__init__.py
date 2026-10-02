@@ -80,4 +80,8 @@ def create_app(config_object=None):
     from . import routes
     app.register_blueprint(routes.bp)
 
+    # --- Comandos de la CLI (``flask seed``; ``flask db ...`` lo aporta Migrate) ---
+    from .cli import seed_command
+    app.cli.add_command(seed_command)
+
     return app
