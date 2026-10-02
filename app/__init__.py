@@ -1,10 +1,12 @@
 """Fábrica de la aplicación Flask para DDN Travel."""
+import os
+
 from flask import Flask, jsonify, render_template, request
 from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .config import get_config, resolve_secret_key
-from .extensions import csrf, limiter
+from .config import INSTANCE_DIR, get_config, resolve_secret_key
+from .extensions import csrf, db, limiter, migrate
 
 
 def usd_filter(value):
@@ -36,6 +38,12 @@ def create_app(config_object=None):
 
     app.jinja_env.filters["usd"] = usd_filter
     app.jinja_env.filters["usd2"] = usd2_filter
+
+    # --- Base de datos y migraciones (P2) ---
+    # La carpeta instance/ guarda la BD SQLite de desarrollo.
+    os.makedirs(INSTANCE_DIR, exist_ok=True)
+    db.init_app(app)
+    migrate.init_app(app, db)
 
     # --- Seguridad de formularios: toda ruta que muta datos exige token CSRF ---
     # Flask-WTF añade el global `csrf_token` a Jinja y acepta la cabecera
