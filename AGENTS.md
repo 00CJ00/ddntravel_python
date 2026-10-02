@@ -66,6 +66,11 @@ IA: Gemini opcional con respaldo simulado. PDF: reportlab. Excel: openpyxl.
 - RN-04 Solo administradores eliminan información crítica.
 - RN-05 Todo cambio queda en historial (auditoría con before/after).
 
+## Documento de requerimientos
+Ver docs/requerimientos.md — fuente oficial de RF-01…RF-20, RNF-01…RNF-10, RN-01…RN-05.
+Los prompts de cada fase citan los códigos relevantes; ante cualquier duda de alcance,
+este documento es la referencia final.
+
 ## Seguridad (invariantes que nunca se rompen)
 - Toda ruta que muta datos: sesión + permiso (`app/permissions.py`, única fuente de verdad) + CSRF.
 - Un cliente solo ve y modifica lo suyo; la propiedad se verifica en el servidor.

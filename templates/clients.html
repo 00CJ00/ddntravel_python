@@ -9,8 +9,10 @@
       </h1>
       <p class="text-xs text-slate-400 mt-1">{{ clients|length }} clientes registrados</p>
     </div>
+    {% if can('clients:create') %}
     <button onclick="openModal('modal-new-client')" class="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2 self-start">
       {{ m.icon('plus','w-4 h-4') }} Nuevo Cliente</button>
+    {% endif %}
   </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

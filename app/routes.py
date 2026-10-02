@@ -1,42 +1,40 @@
-"""Rutas de la aplicación DDN Travel (equivalente a App.tsx + server.ts)."""
+"""Rutas de la aplicación DDN Travel (equivalente a App.tsx + server.ts).
+
+La autorización se resuelve con ``app/permissions.py``: cada ruta declara el
+permiso que exige (``@permission_required``) y, cuando aplica, además verifica
+la propiedad del registro (``owned_or_404``). La matriz de permisos es la
+única fuente de verdad; aquí no se comprueban roles a mano.
+"""
 from __future__ import annotations
 import os
-import datetime
-from functools import wraps
+import re
+from datetime import date
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session, jsonify,
-    abort, flash
+    abort, flash, current_app
 )
 from werkzeug.security import check_password_hash
 
 from .store import store
 from .models import Client, UserSession, new_id
 from . import ai_service
-from .billing import generar_ncf, generar_pdf_factura, validar_rnc, ultimo_ncf_desde_state
+from .extensions import limiter
+from .view import store_view
+from .permissions import (
+    PERMISSIONS, PUBLIC_ENDPOINTS, can, client_record, get_current_user,
+    get_store, owned_or_404, own_records, owns, permission_required,
+)
 
 bp = Blueprint("main", __name__)
 
-CLIENT_ALLOWED_TABS = {"client-portal", "packages", "destinations", "ai-predictive", "activities", "documents"}
-
-# Endpoints accesibles sin haber iniciado sesión
-LOGIN_EXEMPT = {
-    "main.login", "main.logout", "main.health",
-    "main.google_login", "main.google_authorized",
-    "main.set_theme",
-    "main.google.login", "main.google.authorized",
-    "main.contact", "main.request_callback", "main.chat_message",
-}
+# Endpoints accesibles sin haber iniciado sesión (definidos en app/permissions.py).
+LOGIN_EXEMPT = set(PUBLIC_ENDPOINTS)
 
 
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
-def get_current_user():
-    user_id = session.get("user_id")
-    return store.get_user(user_id) if user_id else None
-
-
 def int_field(form, key, default, minimum=None, maximum=None):
     """Lee un entero de un formulario de forma segura (nunca lanza ValueError)."""
     try:
@@ -58,20 +56,14 @@ def float_field(form, key, default=0.0):
         return default
 
 
-def role_required(*roles):
-    """Restringe una ruta a ciertos roles. Redirige al login si no hay sesión
-    y devuelve 403 si el rol actual no está entre los permitidos."""
-    def decorator(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            user = get_current_user()
-            if user is None:
-                return redirect(url_for("main.login"))
-            if roles and user.role not in roles:
-                abort(403)
-            return fn(*args, **kwargs)
-        return wrapper
-    return decorator
+def dev_switch_enabled():
+    """El selector de usuario solo existe en desarrollo y con el flag puesto.
+
+    Es una ayuda de demostración (RF-01) y una escalada de privilegios
+    evidente, así que queda apagado salvo que se pida explícitamente.
+    """
+    from flask import current_app
+    return bool(current_app.debug) and bool(current_app.config.get("ENABLE_DEV_SWITCH"))
 
 
 @bp.before_request
@@ -90,32 +82,66 @@ def redirect_back(default_endpoint: str):
     return redirect(url_for(default_endpoint))
 
 
+def find_payment(payment_id: str):
+    """Busca un pago por su identificador.
+
+    El repositorio definitivo (``store.get_payment``) llega en la fase P4,
+    junto con la secuencia de NCF y el PDF de factura reales.
+    """
+    return next((p for p in store.payments if p.id == payment_id), None)
+
+
+def not_implemented_yet(feature: str):
+    """501 explícito para funcionalidades planificadas en fases posteriores.
+
+    Evita el 500 opaco de una ruta que todavía no tiene la lógica implementada
+    (la autorización y la propiedad ya se han comprobado antes de llegar aquí).
+    """
+    message = (f"{feature} todavía no está disponible: queda implementada en la "
+               f"fase P4 del proyecto (pendiente de fase P4).")
+    if request.path.startswith("/api/"):
+        return jsonify({"success": False, "error": message, "estado": "pendiente_p4"}), 501
+    return render_template("error.html", code=501, message=message), 501
+
+
 @bp.app_context_processor
 def inject_globals():
+    """Inyecta en Jinja una vista **filtrada** del store, nunca el store crudo.
+
+    Para el rol ``client`` el store exposé solo su propio registro y el catálogo
+    público; ``window.DDN_DATA`` (en base.html) recibe esa misma vista, de modo
+    que ninguna respuesta contiene datos de otros clientes. La eliminación de
+    ``window.DDN_DATA`` por completo es trabajo de la fase P7.
+    """
     current_user = get_current_user()
+    view = store_view(store, current_user)
     if current_user is not None:
         visible_notifs = [
-            n for n in store.notifications
+            n for n in view.notifications
             if n.visible_roles is None or current_user.role in n.visible_roles
         ]
     else:
         visible_notifs = []
     unread = [n for n in visible_notifs if not n.read]
+    # Mapa permiso → bool para que el JS decida qué botones mostrar. Es la misma
+    # matriz que aplica el servidor: solo oculta botones, nunca autoriza.
+    client_permissions = {p: can(p, current_user) for p in PERMISSIONS}
     client_side_data = {
-        "clients": [c.to_dict() for c in store.clients],
-        "packages": [p.to_dict() for p in store.packages],
-        "hotels": [h.to_dict() for h in store.hotels],
-        "flights": [f.to_dict() for f in store.flights],
+        "clients": [c.to_dict() for c in view.clients],
+        "packages": [p.to_dict() for p in view.packages],
+        "hotels": [h.to_dict() for h in view.hotels],
+        "flights": [f.to_dict() for f in view.flights],
         "currentUser": current_user.to_dict() if current_user else None,
     }
     return {
-        "store": store,
+        "store": view,
         "current_user": current_user,
-        "available_users": store.available_users,
+        "available_users": view.available_users,
         "theme": session.get("theme", "deep-space"),
         "notifications": visible_notifs,
         "unread_notifications": unread,
         "client_side_data": client_side_data,
+        "client_permissions": client_permissions,
     }
 
 
@@ -123,6 +149,7 @@ def inject_globals():
 # Navegación principal
 # ----------------------------------------------------------------------
 @bp.route("/")
+@permission_required("session:entry")
 def index():
     user = get_current_user()
     if user is None:
@@ -133,12 +160,25 @@ def index():
 
 
 @bp.route("/login", methods=["GET", "POST"])
+@limiter.limit(
+    lambda: current_app.config["LOGIN_RATE_LIMIT"],
+    methods=["POST"],
+    key_func=lambda: (request.remote_addr or "desconocido").lower() + "|" +
+                     (request.form.get("email") or "").strip().lower(),
+)
 def login():
+    """Inicio de sesión con límite por IP+correo (anti fuerza bruta).
+
+    El mensaje de error es genérico a propósito: no revela si el correo existe.
+    """
     error = None
     if request.method == "POST":
         f = request.form
-        user = next((u for u in store.available_users if u.email.lower() == f.get("email", "").strip().lower()), None)
-        if user and getattr(user, "password_hash", None) and check_password_hash(user.password_hash, f.get("password", "")):
+        email = (f.get("email") or "").strip().lower()
+        password = f.get("password") or ""
+        user = next((u for u in store.available_users if u.email.lower() == email), None)
+        if user is not None and getattr(user, "password_hash", None) \
+                and check_password_hash(user.password_hash, password):
             session["user_id"] = user.id
             flash(f"Bienvenido, {user.name.split(' (')[0]}.", "success")
             return redirect(url_for("main.index"))
@@ -147,6 +187,7 @@ def login():
 
 
 @bp.route("/logout", methods=["POST"])
+@permission_required("session:logout")
 def logout():
     session.clear()
     for key in ("google_token", "google_oauth_state"):
@@ -156,7 +197,7 @@ def logout():
 
 
 @bp.route("/dashboard")
-@role_required("admin", "employee")
+@permission_required("dashboard:view")
 def dashboard():
     if get_current_user().role == "client":
         return redirect(url_for("main.client_portal"))
@@ -177,7 +218,7 @@ def dashboard():
 
 
 @bp.route("/ai-predictive")
-@role_required()
+@permission_required("ai:predictive_view")
 def ai_predictive():
     timeframe = request.args.get("timeframe", "Próximos 6 meses (Q3 & Q4)")
     if store.predictive_data is None:
@@ -188,75 +229,75 @@ def ai_predictive():
 
 
 @bp.route("/bookings")
-@role_required("admin", "employee")
+@permission_required("bookings:view")
 def bookings():
     return render_template("bookings.html", active_tab="bookings",
                             bookings=list(reversed(store.bookings)))
 
 
 @bp.route("/clients")
-@role_required("admin", "employee")
+@permission_required("clients:view")
 def clients():
     return render_template("clients.html", active_tab="clients", clients=store.clients)
 
 
 @bp.route("/packages")
-@role_required()
+@permission_required("catalog:view_packages")
 def packages():
     return render_template("packages.html", active_tab="packages", packages=store.packages,
                             destinations=store.destinations)
 
 
 @bp.route("/destinations")
-@role_required()
+@permission_required("catalog:view_destinations")
 def destinations():
     return render_template("destinations.html", active_tab="destinations", destinations=store.destinations)
 
 
 @bp.route("/admin/destinations", methods=["POST"])
-@role_required("admin")
+@permission_required("catalog:create")
 def admin_add_destination():
     data = request.form
-    dest = store.add_destination(current_user, **data)
+    dest = store.add_destination(get_current_user(), **data)
     return jsonify({"success": True, "id": dest.id, "name": dest.name})
 
 
 @bp.route("/admin/destinations/<dest_id>", methods=["POST"])
-@role_required("admin")
+@permission_required("catalog:edit")
 def admin_edit_destination(dest_id):
     data = request.form
-    dest = store.edit_destination(current_user, dest_id, **data)
+    dest = store.edit_destination(get_current_user(), dest_id, **data)
     if dest:
         return jsonify({"success": True, "name": dest.name})
     return jsonify({"success": False, "error": "Destino no encontrado"}), 404
 
 
 @bp.route("/hotels")
-@role_required("admin", "employee")
+@permission_required("catalog:view_hotels")
 def hotels():
     return render_template("hotels.html", active_tab="hotels", hotels=store.hotels)
 
 
 @bp.route("/flights")
-@role_required("admin", "employee")
+@permission_required("catalog:view_flights")
 def flights():
     return render_template("flights.html", active_tab="flights", flights=store.flights)
 
 
 @bp.route("/transports")
-@role_required("admin", "employee")
+@permission_required("catalog:view_transports")
 def transports():
     return render_template("transports.html", active_tab="transports", transports=store.transports)
 
 
 @bp.route("/activities")
-@role_required()
+@permission_required("catalog:view_activities")
 def activities():
     return render_template("activities.html", active_tab="activities", activities=store.activities)
 
 
 @bp.route("/payments")
-@role_required("admin", "employee")
+@permission_required("payments:view")
 def payments():
     return render_template("payments.html", active_tab="payments", payments=store.payments,
                             pending_bookings=[b for b in store.bookings if b.payment_status != "Pagado"
@@ -264,47 +305,48 @@ def payments():
 
 
 @bp.route("/promotions")
-@role_required("admin", "employee")
+@permission_required("promotions:view")
 def promotions():
     return render_template("promotions.html", active_tab="promotions", promotions=store.promotions)
 
 
 @bp.route("/documents")
-@role_required()
+@permission_required("documents:view")
 def documents():
-    return render_template("documents.html", active_tab="documents", documents=store.documents,
-                            clients=store.clients)
+    """Listado de documentos: el cliente solo ve los suyos (propiedad)."""
+    user = get_current_user()
+    visibles = own_records(user, store.documents)
+    return render_template("documents.html", active_tab="documents", documents=visibles,
+                            clients=own_records(user, store.clients))
 
 
 @bp.route("/audit")
-@role_required("admin")
+@permission_required("audit:view")
 def audit():
     return render_template("audit.html", active_tab="audit", logs=store.audit_logs)
 
 
 @bp.route("/client-portal")
-@role_required("client")
+@permission_required("portal:view")
 def client_portal():
+    """Portal del cliente: únicamente sus reservas, nunca las de otros (IDOR)."""
     user = get_current_user()
-    my_bookings = [b for b in store.bookings if b.client_email == user.email]
+    my_bookings = own_records(user, store.bookings)
     return render_template("client_portal.html", active_tab="client-portal", my_bookings=my_bookings,
-                            packages=store.packages[:4])
+                           packages=store.packages[:4])
 
 
 # ----------------------------------------------------------------------
-# Sesión: usuario / tema / reset
+# Sesión: tema / perfil / reset
 # ----------------------------------------------------------------------
-@bp.route("/switch-user", methods=["POST"])
-def switch_user():
-    user_id = request.form.get("user_id")
-    session["user_id"] = user_id
-    user = store.get_user(user_id)
-    if user and user.role == "client":
-        return redirect(url_for("main.client_portal"))
-    return redirect(url_for("main.dashboard"))
+# Nota: /switch-user se eliminó en la fase P1. Era una escalada de privilegios
+# (cualquiera con sesión podía convertirse en otro usuario con solo un POST).
+# Se ha retirado también el selector de la interfaz (templates/base.html).
+# La demostración de roles se hace con las tres credenciales del seed.
 
 
 @bp.route("/set-theme/<theme>", methods=["POST"])
+@permission_required("theme:set")
 def set_theme(theme):
     session["theme"] = "light" if theme == "light" else "deep-space"
     user = get_current_user()
@@ -313,23 +355,31 @@ def set_theme(theme):
 
 
 @bp.route("/edit-profile", methods=["GET", "POST"])
+@permission_required("profile:edit")
 def edit_profile():
     current_user = get_current_user()
     if current_user is None:
         return redirect(url_for("main.login"))
 
-    # Determine which client record to edit
-    client = None
+    # Determinamos sobre qué ficha de cliente se puede escribir.
     if current_user.role == "client":
-        # Find the client associated with this user session
-        client = next((c for c in store.clients if c.email == current_user.email), None)
+        # El cliente solo edita su propio perfil; el id del formulario se ignora.
+        client = client_record(current_user)
+        if client is None:
+            flash("No tienes un perfil de cliente asociado. Contacta a la agencia.", "error")
+            return redirect(url_for("main.client_portal"))
     else:
-        # Admin/employee: pick client from form or first active client
-        client_id = request.form.get("client_id") if request.method == "POST" else None
-        if client_id:
-            client = store.get_client(client_id)
-        if not client:
-            client = store.clients[1] if len(store.clients) > 1 else store.clients[0]
+        # Admin/empleado: elige la ficha del formulario o, en GET, la primera.
+        client_id = request.form.get("client_id") if request.method == "POST" else request.args.get("client_id")
+        client = store.get_client(client_id) if client_id else None
+        if client is None and request.method == "POST":
+            flash("Selecciona un cliente válido para editar su perfil.", "error")
+            return redirect(url_for("main.dashboard"))
+        if client is None:
+            client = store.clients[0] if store.clients else None
+    if client is None:
+        flash("No hay clientes registrados todavía.", "error")
+        return redirect(url_for("main.dashboard"))
 
     if request.method == "POST":
         # Collect form data
@@ -358,26 +408,43 @@ def edit_profile():
             return redirect(url_for("main.client_portal"))
         return redirect(url_for("main.dashboard"))
 
-    # GET: show the form with current data
+    # GET: muestra el formulario con los datos actuales. La lista de fichas
+    # editables la inyecta el store filtrado de la fase P1 (nunca todos).
     return render_template("edit_profile.html", current_user=current_user,
-                           client=client, available_users=store.available_users,
+                           client=client, available_users=own_records(current_user, store.clients),
                            is_admin=current_user.role in ("admin", "employee"))
 
 
 @bp.route("/reset", methods=["POST"])
+@permission_required("data:reset")
 def reset_data():
+    """Restablece los datos de demostración.
+
+    Doble protección: solo administradores (permiso ``data:reset``) y solo si
+    la instalación tiene ``ENABLE_RESET=1``. Además exige una confirmación
+    explícita enviada por el formulario, para que un POST aislado no borre nada.
+    """
+    from flask import current_app
+    if not current_app.config.get("ENABLE_RESET"):
+        abort(404)
+    if request.form.get("confirm") != "RESTABLECER":
+        flash("Para restablecer los datos debes confirmar la operación.", "error")
+        return redirect_back("main.dashboard")
     store.reset_all_data()
     session.pop("user_id", None)
-    return redirect(url_for("main.dashboard"))
+    flash("Datos de demostración restablecidos.", "success")
+    return redirect(url_for("main.login"))
 
 
 @bp.route("/notifications/<notif_id>/read", methods=["POST"])
+@permission_required("notifications:read")
 def read_notification(notif_id):
     store.mark_notification_as_read(notif_id)
     return redirect_back("main.dashboard")
 
 
 @bp.route("/notifications/read-all", methods=["POST"])
+@permission_required("notifications:read")
 def read_all_notifications():
     store.mark_all_notifications_as_read()
     return redirect_back("main.dashboard")
@@ -387,6 +454,7 @@ def read_all_notifications():
 # Clientes
 # ----------------------------------------------------------------------
 @bp.route("/clients/new", methods=["POST"])
+@permission_required("clients:create")
 def new_client():
     f = request.form
     destinations_list = [d.strip() for d in f.get("preferred_destinations", "").split(",") if d.strip()]
@@ -404,17 +472,27 @@ def new_client():
 # Reservas (RN-01, RN-02, RN-03)
 # ----------------------------------------------------------------------
 @bp.route("/bookings/new", methods=["POST"])
+@permission_required("bookings:create")
 def new_booking():
     f = request.form
     current_user = get_current_user()
-    client = store.get_client(f.get("client_id", ""))
+    # Un cliente solo puede reservar a su propio nombre: aunque manipule el
+    # formulario, el cliente se toma de la sesión y no del POST (IDOR).
+    if current_user.role == "client":
+        client = client_record(current_user)
+        if client is None:
+            flash("No tienes un perfil de cliente asociado. Contacta a la agencia.", "error")
+            return redirect(url_for("main.client_portal"))
+    else:
+        client = store.get_client(f.get("client_id", ""))
     package = store.get_package(f.get("package_id", "")) if f.get("package_id") else None
     hotel = store.get_hotel(f.get("hotel_id", "")) if f.get("hotel_id") else None
     flight = store.get_flight(f.get("flight_id", "")) if f.get("flight_id") else None
     travelers = int_field(f, "travelers", 1, minimum=1, maximum=10)
 
     if not client:
-        return render_template("bookings.html", active_tab="bookings", bookings=list(reversed(store.bookings)),
+        return render_template("bookings.html", active_tab="bookings",
+                                bookings=own_records(current_user, store.bookings),
                                 error="Regla de Negocio (RN-02): Debe seleccionar o registrar un cliente para "
                                       "asociar a la reserva.")
 
@@ -462,21 +540,36 @@ def new_booking():
 
     if not result["success"]:
         flash(result["message"], "error")
-        return render_template("bookings.html", active_tab="bookings", bookings=list(reversed(store.bookings)),
+        return render_template("bookings.html", active_tab="bookings",
+                                bookings=own_records(current_user, store.bookings),
                                 error=result["message"])
     flash(result["message"], "success")
+    if current_user.role == "client":
+        return redirect(url_for("main.client_portal"))
     return redirect(url_for("main.bookings"))
 
 
 @bp.route("/bookings/<booking_id>/cancel", methods=["POST"])
+@permission_required("bookings:cancel")
 def cancel_booking(booking_id):
-    store.cancel_booking(get_current_user(), booking_id, request.form.get("reason", ""))
-    return redirect_back("main.bookings")
+    """Cancela una reserva verificando propiedad y estado (IDOR)."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    if user.role == "client" and booking.status != "Pendiente":
+        flash("Solo puedes cancelar reservas que estén en estado Pendiente.", "error")
+        return redirect_back("main.client_portal")
+    store.cancel_booking(user, booking_id, request.form.get("reason", ""))
+    default = "main.client_portal" if user.role == "client" else "main.bookings"
+    return redirect_back(default)
 
 
 @bp.route("/bookings/<booking_id>/status", methods=["POST"])
+@permission_required("bookings:status")
 def update_booking_status(booking_id):
-    store.update_booking_status(get_current_user(), booking_id, request.form.get("status", "Pendiente"))
+    """Cambia el estado de una reserva (solo personal interno; RN-03 en P3)."""
+    user = get_current_user()
+    owned_or_404(user, store.get_booking(booking_id))
+    store.update_booking_status(user, booking_id, request.form.get("status", "Pendiente"))
     return redirect_back("main.bookings")
 
 
@@ -484,23 +577,22 @@ def update_booking_status(booking_id):
 # Pagos (RF-11, RN-03)
 # ----------------------------------------------------------------------
 @bp.route("/payments/new", methods=["POST"])
+@permission_required("payments:create")
 def new_payment():
+    """Registra un pago (RF-11, solo personal interno)."""
     f = request.form
+    user = get_current_user()
+    booking_id = f.get("booking_id", "")
+    if store.get_booking(booking_id) is None:
+        flash("La reserva indicada no existe.", "error")
+        return redirect(url_for("main.payments"))
     result = store.register_payment(
-        get_current_user(), f.get("booking_id", ""),
+        user, booking_id,
         float_field(f, "amount"), f.get("payment_method", "Tarjeta de Crédito"),
         f.get("reference", ""))
     flash(result.get("message", "Pago registrado."), "success" if result.get("success") else "error")
-    # Generación automática de NCF si el pago no tiene uno aún
-    if result.get("success") and result.get("payment"):
-        payment = result.get("payment")  # PaymentTransaction object
-        if not payment.is_ncf_generated():
-            estado = store.state if hasattr(store, 'state') else {}
-            ultimo = ultimo_ncf_desde_state(estado)
-            nuevo_ncf = generar_ncf("A", ultimo)
-            payment.ncf = nuevo_ncf
-            estado["ultimo_ncf"] = nuevo_ncf
-            store.persist()
+    # La asignación de NCF secuencial y persistente (RF-11 / P4) se hace dentro
+    # de la transacción del pago; ver /payments/<id>/ncf (501 en esta fase).
     return redirect(url_for("main.payments"))
 
 
@@ -508,6 +600,7 @@ def new_payment():
 # Promociones (RF-12)
 # ----------------------------------------------------------------------
 @bp.route("/promotions/new", methods=["POST"])
+@permission_required("promotions:create")
 def new_promotion():
     f = request.form
     categories = [c.strip() for c in f.get("applicable_categories", "").split(",") if c.strip()]
@@ -523,12 +616,14 @@ def new_promotion():
 
 
 @bp.route("/promotions/<promo_id>/toggle", methods=["POST"])
+@permission_required("promotions:toggle")
 def toggle_promotion(promo_id):
     store.toggle_promotion_status(promo_id)
     return redirect(url_for("main.promotions"))
 
 
 @bp.route("/api/promo/preview", methods=["POST"])
+@permission_required("promotions:apply")
 def preview_promo():
     data = request.get_json(force=True, silent=True) or {}
     result = store.apply_promo_code(data.get("code", ""), float(data.get("total", 0) or 0))
@@ -539,11 +634,20 @@ def preview_promo():
 # Documentos (RF-17)
 # ----------------------------------------------------------------------
 @bp.route("/documents/new", methods=["POST"])
+@permission_required("documents:create")
 def new_document():
     f = request.form
-    client = store.get_client(f.get("client_id", ""))
+    user = get_current_user()
+    # Un cliente sube documentos a su propio expediente, nunca al de otro (IDOR).
+    if user.role == "client":
+        client = client_record(user)
+        if client is None:
+            flash("No tienes un perfil de cliente asociado. Contacta a la agencia.", "error")
+            return redirect(url_for("main.client_portal"))
+    else:
+        client = store.get_client(f.get("client_id", ""))
     store.add_document(
-        get_current_user(), client_id=client.id if client else "", client_name=client.name if client else "N/A",
+        user, client_id=client.id if client else "", client_name=client.name if client else "N/A",
         doc_type=f.get("doc_type", "Voucher de Reserva"), document_number=f.get("document_number", ""),
         file_name=f.get("file_name") or f"{f.get('doc_type', 'Documento')}_{f.get('document_number', '')}.pdf",
         file_size="1.1 MB", expiry_date=f.get("expiry_date", ""), status="Válido",
@@ -552,7 +656,13 @@ def new_document():
 
 
 @bp.route("/documents/<doc_id>/delete", methods=["POST"])
+@permission_required("documents:delete")
 def delete_document(doc_id):
+    """Elimina un documento. Solo administradores (RN-04).
+
+    La comprobación vive en la ruta; ``store.delete_document`` todavía acepta
+    empleados y su validación se refuerza en la fase P3.
+    """
     store.delete_document(get_current_user(), doc_id)
     return redirect(url_for("main.documents"))
 
@@ -561,6 +671,8 @@ def delete_document(doc_id):
 # API de Inteligencia Artificial (RF-20) — igual que server.ts
 # ----------------------------------------------------------------------
 @bp.route("/api/ai/predictive-analytics", methods=["POST"])
+@permission_required("ai:predictive_run")
+@limiter.limit(lambda: current_app.config["AI_PREDICTIVE_RATE_LIMIT"])
 def api_predictive_analytics():
     data = request.get_json(force=True, silent=True) or {}
     timeframe = data.get("selectedTimeframe", "Próximos 6 meses")
@@ -576,6 +688,8 @@ def api_predictive_analytics():
 
 
 @bp.route("/api/ai/recommendations", methods=["POST"])
+@permission_required("ai:recommend")
+@limiter.limit(lambda: current_app.config["AI_GENERATIVE_RATE_LIMIT"])
 def api_recommendations():
     data = request.get_json(force=True, silent=True) or {}
     result = ai_service.get_recommendations(
@@ -586,6 +700,8 @@ def api_recommendations():
 
 
 @bp.route("/api/ai/generate-itinerary", methods=["POST"])
+@permission_required("ai:itinerary")
+@limiter.limit(lambda: current_app.config["AI_GENERATIVE_RATE_LIMIT"])
 def api_generate_itinerary():
     data = request.get_json(force=True, silent=True) or {}
     result = ai_service.get_itinerary(
@@ -663,7 +779,7 @@ def _find_or_create_client_session(email: str, name: str, avatar: str | None = N
             status="Activo",
             trips_count=0,
             total_spent=0,
-            registration_date=datetime.date.today().isoformat(),
+            registration_date=date.today().isoformat(),
             preferred_destinations=[],
             avatar=avatar or "",
         ))
@@ -710,16 +826,29 @@ FAQS = [
 
 
 @bp.route("/contacto", methods=["GET", "POST"])
+@limiter.limit(lambda: current_app.config["CONTACT_RATE_LIMIT"])
 def contact():
     if request.method == "POST":
         f = request.form
+        # ``.get`` puede devolver None y los POST automatizados no traen todos
+        # los campos: se normalizan a cadena y se corta por longitud.
+        nombre = (f.get("name") or "").strip()[:120]
+        email = (f.get("email") or "").strip()[:120]
+        asunto = (f.get("subject") or "").strip()[:200]
+        mensaje = (f.get("message") or "").strip()
+        if not mensaje:
+            flash("Escribe tu mensaje antes de enviarlo.", "error")
+            return render_template("contact.html", faqs=FAQS)
+        if len(mensaje) > current_app.config["CONTACT_MESSAGE_MAX_LENGTH"]:
+            flash(f"El mensaje es demasiado largo (máximo {current_app.config['CONTACT_MESSAGE_MAX_LENGTH']} caracteres).", "error")
+            return render_template("contact.html", faqs=FAQS)
         store.log_action(
             "public", "Visitante Web", "CONTACT_FORM",
-            "Contacto", f"Mensaje de {f.get('name')} ({f.get('email')}): {f.get('subject')}"
+            "Contacto", f"Mensaje de {nombre} ({email}): {asunto}"
         )
         store.add_notification(
             "Nuevo mensaje de contacto",
-            f"{f.get('name')} ({f.get('email')}) - {f.get('subject')}: {f.get('message')[:120]}...",
+            f"{nombre} ({email}) - {asunto}: {mensaje[:120]}...",
             "info", "contact"
         )
         flash("¡Gracias! Tu mensaje ha sido enviado. Te responderemos en menos de 24 horas.", "success")
@@ -728,11 +857,12 @@ def contact():
 
 
 @bp.route("/contacto/callback", methods=["POST"])
-@role_required("client")
+@permission_required("profile:callback")
+@limiter.limit(lambda: current_app.config["CONTACT_RATE_LIMIT"])
 def request_callback():
     f = request.form
-    reason = f.get("reason", "").strip()
-    phone = f.get("phone", "").strip()
+    reason = (f.get("reason") or "").strip()[:500]
+    phone = (f.get("phone") or "").strip()[:40]
     if not reason or not phone:
         flash("Completa todos los campos.", "error")
         return redirect(url_for("main.contact"))
@@ -751,18 +881,32 @@ def request_callback():
 
 
 @bp.route("/api/chat/message", methods=["POST"])
+@limiter.limit(lambda: current_app.config["CHAT_RATE_LIMIT"])
 def chat_message():
+    """Asistente virtual: solo responde con la FAQ, sin datos de clientes.
+
+    La coincidencia es por **palabras completas**: comparar subcadenas hacía que
+    «hi» encajara dentro de «which» y «hola» dentro de «holanda».
+    """
     data = request.get_json(force=True, silent=True) or {}
-    user_msg = (data.get("message") or "").strip().lower()
-    if not user_msg:
+    user_msg = (data.get("message") or "").strip()
+    if len(user_msg) > current_app.config["CHAT_MESSAGE_MAX_LENGTH"]:
+        return jsonify({
+            "success": False,
+            "reply": f"El mensaje es demasiado largo (máximo {current_app.config['CHAT_MESSAGE_MAX_LENGTH']} caracteres).",
+        }), 422
+    palabras = set(re.findall(r"[a-záéíóúñü]+", user_msg.lower()))
+    if not palabras:
         return jsonify({"reply": "Escribe algo para que pueda ayudarte.", "faq": False})
+
     for faq in FAQS:
-        keywords = faq["question"].lower().split()
-        if any(kw in user_msg for kw in keywords if len(kw) > 3):
+        # Palabras completas de la pregunta (se ignoran las de menos de 4 letras).
+        clave = {p for p in re.findall(r"[a-záéíóúñü]+", faq["question"].lower()) if len(p) > 3}
+        if clave & palabras:
             return jsonify({"reply": faq["answer"], "faq": True, "matched": faq["question"]})
-    if any(w in user_msg for w in ["hola", "buenas", "hello", "hi"]):
+    if palabras & {"hola", "buenas", "buenos", "hello", "hi", "hey", "saludos"}:
         return jsonify({"reply": "¡Hola! 👋 Soy el asistente virtual de DDN Travel. ¿En qué puedo ayudarte hoy? Puedes preguntarme sobre reservas, pagos, documentos, seguros, itinerarios...", "faq": False})
-    if any(w in user_msg for w in ["gracias", "thanks", "thx"]):
+    if palabras & {"gracias", "thanks", "thx"}:
         return jsonify({"reply": "¡De nada! 😊 Si necesitas algo más, aquí estoy. También puedes llamarnos al +1 (809) 555-0123.", "faq": False})
     return jsonify({"reply": "No tengo una respuesta exacta para eso. ¿Quieres que te conecte con un agente humano? Escribe «agente» o ve a la página de Contacto.", "faq": False, "suggest_agent": True})
 
@@ -792,58 +936,25 @@ def server_error(_e):
 # Facturación RD: NCF y PDF de factura
 # ----------------------------------------------------------------------
 @bp.route("/payments/<payment_id>/ncf", methods=["GET"])
-@role_required("admin", "employee")
+@permission_required("payments:invoice")
 def payment_ncf(payment_id):
-    """Endpoint para obtener o generar el NCF de un pago."""
-    payment = store.get_payment(payment_id)
-    if not payment:
-        return "Pago no encontrado", 404
-    # Si no tiene NCF, lo generamos secuencialmente
-    if not payment.is_ncf_generated():
-        estado = store.state if hasattr(store, 'state') else {}
-        ultimo = ultimo_ncf_desde_state(estado)
-        nuevo_ncf = generar_ncf("A", ultimo)
-        payment.ncf = nuevo_ncf
-        # Guardamos el último NCF usado en el state global
-        if "ultimo_ncf" not in estado:
-            estado["ultimo_ncf"] = nuevo_ncf
-        store.persist()
-    return jsonify({
-        "ncf": payment.ncf,
-        "generado": not bool(ultimo) if 'ultimo' in (store.state or {}) else True,
-        "fecha": date.today().isoformat()
-    })
+    """NCF de un pago. Autorización y propiedad ya comprobadas; la emisión
+    real del NCF secuencial y persistente es de la fase P4 (ver P4 punto 2)."""
+    user = get_current_user()
+    payment = find_payment(payment_id)
+    owned_or_404(user, payment)
+    return not_implemented_yet("La emisión del NCF")
 
 
 @bp.route("/payments/<payment_id>/factura", methods=["GET"])
-@role_required("admin", "employee")
+@permission_required("payments:invoice")
 def payment_factura(payment_id):
-    """Descarga la factura PDF asociada a un pago."""
-    payment = store.get_payment(payment_id)
-    if not payment or not payment.is_ncf_generated():
-        flash("Este pago no tiene NCF generado todavía.", "error")
-        return redirect(url_for("main.payments"))
-    # Datos para el PDF (usar datos reales de la reserva asociada)
-    items = [
-        {"description": f"Reserva #{payment.booking_code}", "quantity": 1, "price": payment.total_price or 0},
-    ]
-    pdf_bytes = generar_pdf_factura(
-        titulo="Factura DDN Travel",
-        rnc_emitter="J302010123",  # RNC de la agencia (ejemplo dominicano)
-        nombre_emitter="DDN Travel Tours",
-        rnc_client=payment.client_email or "—",
-        nombre_client=payment.client_name or "—",
-        items=items,
-        total=payment.total_price or 0,
-        ncf=payment.ncf,
-        fecha=payment.creation_date or date.today().isoformat(),
-    )
-    return send_file(
-        BytesIO(pdf_bytes),
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=f"Factura_NCF-{payment.ncf}.pdf"
-    )
+    """Factura PDF de un pago. Autorización y propiedad ya comprobadas; el
+    PDF real (emisor desde configuración, ítems, NCF) es de la fase P4."""
+    user = get_current_user()
+    payment = find_payment(payment_id)
+    owned_or_404(user, payment)
+    return not_implemented_yet("La factura en PDF")
 
 
 # ----------------------------------------------------------------------

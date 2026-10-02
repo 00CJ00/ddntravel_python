@@ -11,6 +11,7 @@
     <p class="text-slate-400 mb-6">Actualiza tu información de contacto y preferencias. Los cambios se guardan automáticamente.</p>
 
     <form method="POST" class="space-y-4">
+    {{ m.csrf_input() }}
       <!-- Client selector (solo para admin/empleado) -->
       {% if is_admin %}
       <div>

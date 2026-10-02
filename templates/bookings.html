@@ -9,8 +9,10 @@
       </h1>
       <p class="text-xs text-slate-400 mt-1">{{ bookings|length }} reservas registradas en el sistema</p>
     </div>
+    {% if can('bookings:create') %}
     <button onclick="openModal('modal-new-booking')" class="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2 self-start">
       {{ m.icon('plus','w-4 h-4') }} Nueva Reserva</button>
+    {% endif %}
   </div>
 
   {% if error %}
