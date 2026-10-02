@@ -41,6 +41,9 @@ def create_app(config_object=None):
 
     # --- Base de datos y migraciones (P2) ---
     # La carpeta instance/ guarda la BD SQLite de desarrollo.
+    # Flask-SQLAlchemy crea una sesión por contexto de aplicación (es decir, por
+    # petición) y la cierra en su teardown. El commit/rollback de dominio NO se
+    # dispersa por las rutas: se centraliza en DataStore._commit/_rollback.
     os.makedirs(INSTANCE_DIR, exist_ok=True)
     db.init_app(app)
     migrate.init_app(app, db)

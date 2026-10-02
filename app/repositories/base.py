@@ -45,6 +45,32 @@ def all_of(model, order=None):
     return query.all()
 
 
+def decrement_if_available(model, ident, column, amount) -> bool:
+    """Descuenta inventario con un ``UPDATE`` condicional atómico (RN-01).
+
+    Patrón único y reutilizable para cualquier existencia: ejecuta
+    ``SET column = column - amount WHERE pk = ident AND column >= amount`` en
+    una sola sentencia y comprueba el ``rowcount``. Evita el "leer y luego
+    restar" (condición de carrera que permitiría sobreventa con peticiones
+    concurrentes). Devuelve ``True`` solo si actualizó exactamente una fila.
+
+    No confirma: participa de la transacción del llamador, que centraliza el
+    ``commit`` en ``DataStore._commit``.
+    """
+    amount = to_int(amount)
+    if amount < 0:
+        return False
+    if amount == 0:
+        return True
+    pk = list(model.__table__.primary_key.columns)[0]
+    updated = (
+        db.session.query(model)
+        .filter(pk == ident, column >= amount)
+        .update({column: column - amount}, synchronize_session="fetch")
+    )
+    return updated == 1
+
+
 def to_decimal(value) -> Decimal:
     """Convierte a ``Decimal`` de forma tolerante."""
     if value in (None, ""):
@@ -145,12 +171,16 @@ def assign_by_type(obj, data, allowed=None, skip=()) -> None:
 
 
 def save(obj):
-    """Añade y confirma una entidad nueva."""
+    """Añade una entidad nueva y hace ``flush`` para obtener su PK.
+
+    No confirma: la confirmación es única y central (``DataStore._commit``).
+    """
     db.session.add(obj)
     db.session.flush()
     return obj
 
 
 def delete(obj) -> None:
+    """Marca una entidad para borrado y hace ``flush`` (sin confirmar)."""
     db.session.delete(obj)
     db.session.flush()

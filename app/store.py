@@ -126,6 +126,13 @@ class DataStore:
         self._commit()
 
     def _commit(self) -> None:
+        """Único punto de confirmación de la aplicación.
+
+        Todas las mutaciones de dominio pasan por aquí (``app/repositories``
+        solo hace ``flush``); así una mutación y su auditoría se confirman o se
+        revierten juntas. La sesión es una por petición (Flask-SQLAlchemy la
+        cierra en el ``teardown`` del contexto de aplicación).
+        """
         db.session.commit()
 
     # ------------------------------------------------------------------
@@ -568,6 +575,12 @@ class DataStore:
     # Interno
     # ------------------------------------------------------------------
     def _rollback(self) -> None:
+        """Único punto de reversión explícita de la aplicación.
+
+        Descarta la transacción en curso (p. ej. cuando falla un ``UPDATE``
+        condicional de inventario). Ante una excepción no controlada,
+        Flask-SQLAlchemy cierra la sesión en el teardown y revierte igualmente.
+        """
         db.session.rollback()
 
 

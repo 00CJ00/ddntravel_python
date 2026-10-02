@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .. import models as m
-from .base import all_of, assign_by_type, delete, get, save, to_int
+from .base import all_of, assign_by_type, decrement_if_available, delete, get, save, to_int
 
 
 # --- Destinos ---------------------------------------------------------
@@ -39,14 +39,13 @@ def create_package(data):
 
 
 def reserve_slots_atomic(package_id, travelers) -> bool:
-    """Descuenta cupos con un UPDATE condicional atómico (RN-01)."""
-    updated = (
-        m.Package.query
-        .filter(m.Package.id == package_id, m.Package.available_slots >= travelers)
-        .update({m.Package.available_slots: m.Package.available_slots - travelers},
-                synchronize_session="fetch")
-    )
-    return updated == 1
+    """Aparta cupos del paquete con el patrón atómico de inventario (RN-01).
+
+    Delega en ``base.decrement_if_available`` (el patrón reutilizable). En la
+    fase P2 el único inventario que se descuenta al reservar es el de paquetes;
+    vuelos, transporte y habitaciones se abordan en la fase P3.
+    """
+    return decrement_if_available(m.Package, package_id, m.Package.available_slots, travelers)
 
 
 def release_slots(package_id, travelers) -> None:
