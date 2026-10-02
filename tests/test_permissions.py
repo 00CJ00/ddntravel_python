@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import app.permissions as permissions  # noqa: E402
-from app.models import UserSession  # noqa: E402
+from app.models.legacy import UserSession  # noqa: E402
 
 
 def _user(role: str, user_id: str = "usr-x", email: str = "x@example.com") -> UserSession:

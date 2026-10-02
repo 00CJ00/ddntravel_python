@@ -13,7 +13,7 @@ import functools
 import datetime
 from pathlib import Path
 
-from .models import (
+from .models.legacy import (
     UserSession, Client, Destination, TourPackage, Hotel, Flight,
     TouristTransport, TouristActivity, Booking, PaymentTransaction,
     Promotion, NotificationItem, AuditLog, TravelDocument,

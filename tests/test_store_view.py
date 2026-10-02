@@ -88,7 +88,7 @@ def test_admin_sigue_viendo_todos_los_clientes(client, store, login_as):
 def test_store_view_filtra_por_propiedad(store):
     """Prueba unitaria de la vista, sin pasar por HTTP."""
     from app.view import store_view
-    from app.models import UserSession
+    from app.models.legacy import UserSession
 
     usuario = UserSession(id="usr-x", name="Cliente X", email=CLIENT_EMAIL, role="client", avatar="")
     vista = store_view(store, usuario)

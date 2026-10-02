@@ -45,7 +45,7 @@ from functools import wraps
 from flask import abort, redirect, session, url_for
 
 from . import store as store_module
-from .models import Booking, Client, PaymentTransaction, TravelDocument
+from .models.legacy import Booking, Client, PaymentTransaction, TravelDocument
 
 ROLES = ("admin", "employee", "client")
 

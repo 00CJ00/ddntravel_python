@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import app.store as store_module
-from app.models import UserSession
+from app.models.legacy import UserSession
 
 
 @pytest.fixture

@@ -1,18 +1,20 @@
-"""
-Modelos del sistema DDN Travel.
+"""Modelos del sistema DDN Travel (clases de dominio heredadas, paso previo a P2).
 
-Se define una clase base `Entity` de la cual heredan todas las entidades
+Estas clases son las entidades en memoria que usaba ``app/store.py`` antes de la
+migración a SQLAlchemy. Se conservan temporalmente en este módulo para que la
+aplicación siga funcionando mientras se completan los pasos 3 a 5 de la fase P2,
+que las sustituyen por los modelos ORM del paquete.
+
+Se define una clase base ``Entity`` de la cual heredan todas las entidades
 del negocio (Cliente, Reserva, Paquete, etc.). Esto permite reutilizar
 comportamiento común (id, conversión a diccionario, actualización de
 campos) y a la vez dejar que cada subclase agregue su propia lógica de
 negocio particular (polimorfismo / method overriding), tal como se vio
-en el curso de Programación Orientada a Objetos (herencia de vehículos,
-animales, etc.).
+en el curso de Programación Orientada a Objetos.
 """
 from __future__ import annotations
 import time
 import random
-import string
 
 
 def new_id(prefix: str) -> str:

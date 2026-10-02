@@ -17,7 +17,7 @@ from flask import (
 from werkzeug.security import check_password_hash
 
 from .store import store
-from .models import Client, UserSession, new_id
+from .models.legacy import Client, UserSession, new_id
 from . import ai_service
 from .extensions import limiter
 from .view import store_view
