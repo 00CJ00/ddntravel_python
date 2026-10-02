@@ -46,7 +46,10 @@ def create_app(config_object=None):
     # dispersa por las rutas: se centraliza en DataStore._commit/_rollback.
     os.makedirs(INSTANCE_DIR, exist_ok=True)
     db.init_app(app)
-    migrate.init_app(app, db)
+    # render_as_batch=True: SQLite no soporta ALTER TABLE nativo para la mayoría
+    # de cambios; el modo batch de Alembic los emula recreando la tabla. Se
+    # necesita desde la primera migración para que las futuras (P3+) funcionen.
+    migrate.init_app(app, db, render_as_batch=True)
 
     # --- Seguridad de formularios: toda ruta que muta datos exige token CSRF ---
     # Flask-WTF añade el global `csrf_token` a Jinja y acepta la cabecera
