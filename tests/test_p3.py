@@ -304,21 +304,27 @@ def test_promo_preview_no_incrementa_usos(store):
     store.apply_promo_code("TEST10", 1000, "Estándar")
     assert promo.current_uses == 0
 
-def test_todas_las_rutas_mutantes_auditan():
+def test_todas_las_rutas_mutantes_auditan(app):
+    """Cada ruta que muta datos (salvo chat/contacto/set-theme) debe producir auditoría."""
     import inspect
     import app.routes as routes
+    EXCLUIDAS = {"/api/chat/message", "/contacto", "/contacto/callback", "/set-theme"}
+    SIN_EFECTOS = {"/login", "/logout", "/api/ai/recommendations",
+                   "/api/ai/generate-itinerary", "/api/promo/preview"}
     revisadas = []
-    no_mutantes = {"index", "login", "logout", "set_theme",
-                   "api_recommendations", "api_generate_itinerary",
-                   "payment_ncf", "payment_factura", "preview_promo"}  # sesión/tema, IA o solo lectura
-    for nombre, fn in vars(routes).items():
-        if not inspect.isfunction(fn):
+    for regla in app.url_map.iter_rules():
+        metodos = set(regla.methods) - {"GET", "HEAD", "OPTIONS"}
+        if not metodos:
             continue
-        if not hasattr(fn, "required_permission") or nombre in no_mutantes:
+        if regla.rule in SIN_EFECTOS or any(e in regla.rule for e in EXCLUIDAS):
             continue
-        src = inspect.getsource(fn)
-        # Las rutas que cambian datos delegan en el store (que audita dentro de cada método)
-        # o llaman a log_action directamente:
-        assert ("store." in src or "log_action" in src), f"{nombre} no registra auditoría"
-        revisadas.append(nombre)
-    assert revisadas
+        vista = app.view_functions[regla.endpoint]
+        try:
+            src = inspect.getsource(vista)
+        except (OSError, TypeError):
+            continue
+        # La vista delega en un método del store (que audita) o llama log_action:
+        assert ("store." in src or "log_action" in src or "store\." in src), \
+            f"{regla.endpoint} ({regla.rule}) no deja rastro de auditoría"
+        revisadas.append(regla.endpoint)
+    assert revisadas, "no se revisó ninguna ruta mutante"
