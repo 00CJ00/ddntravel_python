@@ -124,6 +124,29 @@ def test_rn03_confirmar_sin_pago_falla(client, store, login_as, post_csrf):
     assert booking.status == "Pendiente"
 
 
+def test_rn03_bypass_con_pago_no_verificado(client, store, login_as, post_csrf):
+    """Bypass intentado: pagar en efectivo (no verificado) y forzar 'Confirmada' por ruta."""
+    login_as(client, ADMIN_EMAIL)
+    cli = store.clients[0]
+    r = store.create_booking(_admin(), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, travelers=1, total_price=800)
+    booking = r["booking"]
+    store.register_payment(_admin(), booking.id, 800, "Efectivo")
+    resp = post_csrf(client, f"/bookings/{booking.id}/status", {"status": "Confirmada"})
+    assert resp.status_code == 422
+    assert booking.status == "Pendiente"
+
+
+def test_rn03_apply_payment_no_confirma_directo(store):
+    """Bypass unitario: apply_payment ya no cambia el estado directamente."""
+    cli = store.clients[0]
+    r = store.create_booking(_admin(), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, travelers=1, total_price=500)
+    booking = r["booking"]
+    booking.apply_payment(500)
+    assert booking.status == "Pendiente"  # solo transition puede confirmar
+
+
 def test_pago_verificado_flujo(store):
     cli = store.clients[0]
     r = store.create_booking(_admin(), client_id=cli.id, client_name=cli.name,
