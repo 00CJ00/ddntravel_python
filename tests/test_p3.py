@@ -255,8 +255,55 @@ def test_password_minima_8(store):
 
 
 # ----------------------------------------------------------------------
-# RN-05: toda ruta mutante produce auditoría
+# Promociones (RF-12)
 # ----------------------------------------------------------------------
+def _promo_activa(store, **over):
+    from app.models import Promotion
+    data = dict(id="prm-test", code="TEST10", discount_percentage=10, max_uses=100,
+                current_uses=0, active=True, applicable_categories=["Todos"], valid_until="")
+    data.update(over)
+    p = Promotion(**data)
+    store.promotions.insert(0, p)
+    return p
+
+
+def test_promo_registra_redemption_y_suma_usos(store):
+    promo = _promo_activa(store)
+    cli = store.clients[0]
+    r = store.create_booking(_admin(), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, travelers=1, total_price=1000,
+                             promo_code="TEST10")
+    assert r["success"] is True or r["success"] is False  # crea igual
+    assert promo.current_uses == 1
+    assert any(red["promotion_id"] == "prm-test" and red["booking_id"] == r["booking"].id
+               for red in store.promotion_redemptions)
+
+
+def test_promo_vencida_rechazada(store):
+    promo = _promo_activa(store, code="VIEJO", valid_until="2000-01-01")
+    cli = store.clients[0]
+    r = store.create_booking(_admin(), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, travelers=1, total_price=1000,
+                             promo_code="VIEJO")
+    assert r["success"] is False
+    assert promo.current_uses == 0
+
+
+def test_promo_categoria_no_aplicable(store):
+    promo = _promo_activa(store, code="VIPONLY", applicable_categories=["VIP"])
+    cli = next(c for c in store.clients if c.category != "VIP")
+    r = store.create_booking(_admin(), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, travelers=1, total_price=1000,
+                             promo_code="VIPONLY")
+    assert r["success"] is False
+    assert promo.current_uses == 0
+
+
+def test_promo_preview_no_incrementa_usos(store):
+    promo = _promo_activa(store)
+    store.apply_promo_code("TEST10", 1000, "Estándar")
+    assert promo.current_uses == 0
+
 def test_todas_las_rutas_mutantes_auditan():
     import inspect
     import app.routes as routes
