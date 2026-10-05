@@ -39,6 +39,20 @@ def test_rn01_paquete_sin_cupos_rechaza(store):
     assert r["success"] is False and "RN-01" in r["message"]
 
 
+def test_rn01_rollback_total_si_falla_cualquier_recurso(store):
+    """Si el vuelo falla, el hold del paquete NO debe quedar aplicado (todo o nada)."""
+    pkg = store.packages[0]
+    antes = pkg.available_slots
+    flight = store.flights[0]
+    flight.seats_available = 0
+    cli = store.clients[0]
+    r = store.create_booking(_admin(), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, package_id=pkg.id, flight_id=flight.id,
+                             travelers=1, total_price=500)
+    assert r["success"] is False and "RN-01" in r["message"]
+    assert pkg.available_slots == antes  # rollback del hold del paquete
+
+
 def test_rn01_vuelo_sin_asientos(store):
     flight = store.flights[0]
     flight.seats_available = 1
