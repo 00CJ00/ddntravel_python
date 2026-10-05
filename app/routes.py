@@ -637,8 +637,11 @@ def update_booking_status(booking_id):
     result = store.update_booking_status(user, booking_id, nuevo_estado)
     if not result["success"]:
         flash(result["message"], "error")
-    else:
-        flash(result["message"], "success")
+        # RN-03: transición rechazada → 422 (nada cambió en la reserva).
+        return render_template("bookings.html", active_tab="bookings",
+                               bookings=own_records(user, store.bookings),
+                               error=result["message"]), 422
+    flash(result["message"], "success")
     return redirect_back("main.bookings")
 
 

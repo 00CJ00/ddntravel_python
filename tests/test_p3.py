@@ -106,6 +106,7 @@ def test_rn03_confirmar_sin_pago_falla(client, store, login_as, post_csrf):
                              client_email=cli.email, travelers=1, total_price=900)
     booking = r["booking"]
     resp = post_csrf(client, f"/bookings/{booking.id}/status", {"status": "Confirmada"})
+    assert resp.status_code == 422
     assert booking.status == "Pendiente"
 
 
