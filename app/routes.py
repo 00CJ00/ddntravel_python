@@ -514,10 +514,22 @@ def new_booking():
                                 error="Regla de Negocio (RN-02): Debe seleccionar o registrar un cliente para "
                                       "asociar a la reserva.")
 
-    base_price = package.price_usd if package else (
-        (hotel.room_types[0]["price_per_night"] if hotel and getattr(hotel, "room_types", None) else 300))
+    rooms_count = int_field(f, "rooms_count", 1, minimum=1, maximum=20)
+    nights = 1
+    try:
+        dep = datetime.datetime.fromisoformat(str(f.get("departure_date", ""))[:10]).date()
+        ret = datetime.datetime.fromisoformat(str(f.get("return_date", ""))[:10]).date()
+        nights = max(1, (ret - dep).days)
+    except (ValueError, TypeError):
+        nights = 1
+    if package:
+        base_price = package.price_usd * travelers
+    elif hotel and getattr(hotel, "room_types", None):
+        base_price = hotel.room_types[0]["price_per_night"] * nights * rooms_count
+    else:
+        base_price = 300 * travelers
     flight_addon = (flight.price_usd * travelers) if flight else 0
-    raw_total = (base_price * travelers) + flight_addon
+    raw_total = base_price + flight_addon
 
     promo_code = f.get("promo_code", "").strip()
     discounted_total = raw_total
