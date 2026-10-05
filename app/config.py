@@ -43,8 +43,9 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URI
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
-    # Número de respaldos que conserva scripts/backup.py.
+    # Número de respaldos que conserva scripts/backup.py y ``flask backup``.
     BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "10"))
+    BACKUP_DIR = os.environ.get("BACKUP_DIR") or str(BASE_DIR / "backups")
 
     # --- Sesión y cookies (RNF-01) ---
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)

@@ -83,8 +83,10 @@ def create_app(config_object=None):
     from . import routes
     app.register_blueprint(routes.bp)
 
-    # --- Comandos de la CLI (``flask seed``; ``flask db ...`` lo aporta Migrate) ---
-    from .cli import seed_command
+    # --- Comandos de la CLI (``flask seed``, ``flask backup``; ``flask db ...`` ---
+    # lo aporta Flask-Migrate) ---
+    from .cli import backup_command, seed_command
     app.cli.add_command(seed_command)
+    app.cli.add_command(backup_command)
 
     return app
