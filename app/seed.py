@@ -231,6 +231,10 @@ def seed_database(reset: bool = False) -> bool:
         remember("promotions", p.get("id"), obj.id)
 
     # --- Reservas y pasajeros ---
+    # El ``booking_code`` del demo se conserva tal cual viene en seed_data.json
+    # (p. ej. "DDN-2026-881") para no romper las referencias cruzadas de pagos y
+    # auditoría del juego original. Las reservas creadas por la app sí usan el
+    # formato de P2: "DDN-{año}-{id:05d}" (ver repositories/bookings.py).
     for b in raw["initial_bookings"]:
         booking = add(m.Booking(
             booking_code=b.get("booking_code"), client_id=fk("clients", b.get("client_id")),

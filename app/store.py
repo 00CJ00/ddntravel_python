@@ -6,8 +6,8 @@ de datos (``create_booking``, ``register_payment``, ``add_client``…) y expone 
 colecciones como propiedades. Toda la lógica de acceso vive en
 ``app/repositories``; aquí se orquesta y se registra la auditoría (RN-05).
 
-Ya no hay estado en memoria ni ``state.json``: cada propiedad consulta la BD y
-cada mutación se confirma contra la sesión de SQLAlchemy.
+Ya no hay estado en memoria ni archivo JSON: cada propiedad consulta la base de
+datos y cada mutación se confirma contra la sesión de SQLAlchemy.
 """
 from __future__ import annotations
 
@@ -15,15 +15,18 @@ import datetime
 
 from sqlalchemy import desc
 
-from .extensions import db
 from . import audit
 from . import models as m
 from . import seed as seed_module
-from .repositories import catalog, documents as documents_repo, notifications as notifications_repo
-from .repositories import payments as payments_repo, people, promotions as promotions_repo
-from .repositories import settings as settings_repo
+from .extensions import db
 from .repositories import bookings as bookings_repo
-from .repositories.base import coerce_id, to_decimal, to_int
+from .repositories import catalog, people
+from .repositories import documents as documents_repo
+from .repositories import notifications as notifications_repo
+from .repositories import payments as payments_repo
+from .repositories import promotions as promotions_repo
+from .repositories import settings as settings_repo
+from .repositories.base import coerce_id, to_decimal
 
 PAYMENT_METHODS = ["Tarjeta de Crédito", "Transferencia Bancaria", "Efectivo", "Cripto", "PayPal"]
 

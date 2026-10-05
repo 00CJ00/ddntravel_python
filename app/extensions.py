@@ -19,7 +19,7 @@ csrf = CSRFProtect()
 #: Limitador de peticiones por IP (anti fuerza bruta y anti abuso).
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
-#: ORM de la aplicación (SQLAlchemy). Sustituye al antiguo ``state.json``.
+#: ORM de la aplicación (SQLAlchemy). Sustituye al antiguo archivo JSON de estado.
 db = SQLAlchemy()
 
 #: Migraciones de esquema (Alembic) gestionadas con ``flask db ...``.

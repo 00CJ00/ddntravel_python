@@ -1,7 +1,13 @@
 """Idempotencia del sembrado y comando ``flask seed`` (fase P2, paso 7)."""
+import json
+import re
+from pathlib import Path
+
 from app import models as m
 from app import seed as seed_module
 from app.extensions import db
+
+SEED_PATH = Path(__file__).resolve().parent.parent / "app" / "seed_data.json"
 
 
 def _conteos() -> dict:
@@ -57,3 +63,34 @@ def test_cli_seed_reset_bloqueado_fuera_de_desarrollo(make_app):
     resultado = runner.invoke(args=["seed", "--reset"])
     assert resultado.exit_code != 0
     assert "desarrollo" in resultado.output
+
+
+def test_codigos_de_reserva_nuevos_siguen_el_formato_de_p2(store):
+    """Las reservas creadas por la app usan ``DDN-{año}-{id:05d}``."""
+    from app.models import User
+
+    admin = User(name="Carlos Mendoza", role="admin")
+    cliente = store.clients[0]
+    resultado = store.create_booking(
+        admin, client_id=cliente.id, client_name=cliente.name,
+        client_email=cliente.email, travelers=1, total_price=1200)
+
+    assert resultado["success"] is True
+    codigo = resultado["booking"].booking_code
+    assert re.fullmatch(r"DDN-\d{4}-\d{5}", codigo), codigo
+
+
+def test_el_seed_conserva_los_codigos_originales_del_demo(app):
+    """El demo conserva sus códigos (referenciados por pagos y auditoría).
+
+    Es una divergencia deliberada: solo las reservas nuevas siguen el formato
+    ``DDN-{año}-{id:05d}``. Fijarla con un test evita que parezca un descuido.
+    """
+    esperado = {
+        b["booking_code"]
+        for b in json.loads(SEED_PATH.read_text(encoding="utf-8"))["initial_bookings"]
+    }
+    guardados = {b.booking_code for b in m.Booking.query.all()}
+
+    assert guardados == esperado
+    assert len(guardados) == m.Booking.query.count(), "los códigos deben ser únicos"
