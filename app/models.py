@@ -132,10 +132,9 @@ class Booking(Entity):
         return self.amount_paid >= self.total_price
 
     def apply_payment(self, amount: float) -> None:
+        """Suma el pago a lo pagado; NO cambia ``status`` (eso es de BookingService.transition)."""
         self.amount_paid += amount
         self.payment_status = "Pagado" if self.is_fully_paid() else "Parcial"
-        if self.is_fully_paid():
-            self.status = "Confirmada"
 
     def describe(self) -> str:
         return f"{self.booking_code} — {self.client_name}"

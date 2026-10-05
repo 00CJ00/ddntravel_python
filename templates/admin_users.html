@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% import 'macros.html' as m %}
+{% block content %}
+<div class="space-y-6 view-fade-in">
+  <div>
+    <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+      {{ m.icon('users','w-6 h-6 text-indigo-400') }} Administración de Usuarios (RF-01)
+    </h1>
+    <p class="text-xs text-slate-400 mt-1">{{ users|length }} usuarios registrados</p>
+  </div>
+
+  <div class="bg-white/5 border border-white/10 rounded-3xl p-6">
+    <h2 class="text-sm font-bold text-white mb-4">Crear usuario</h2>
+    <form method="POST" action="{{ url_for('main.admin_new_user') }}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input name="name" placeholder="Nombre" class="px-3 py-2 rounded-xl bg-black/30 text-white text-xs" required>
+      <input name="email" type="email" placeholder="Email" class="px-3 py-2 rounded-xl bg-black/30 text-white text-xs" required>
+      <input name="password" type="password" placeholder="Contraseña (mín. 8)" class="px-3 py-2 rounded-xl bg-black/30 text-white text-xs" required minlength="8">
+      <select name="role" class="px-3 py-2 rounded-xl bg-black/30 text-white text-xs">
+        <option value="admin">admin</option>
+        <option value="employee">employee</option>
+        <option value="client" selected>client</option>
+      </select>
+      <input name="department" placeholder="Departamento" class="px-3 py-2 rounded-xl bg-black/30 text-white text-xs">
+      <select name="client_id" class="px-3 py-2 rounded-xl bg-black/30 text-white text-xs">
+        <option value="">— Cliente vinculado (opcional) —</option>
+        {% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      </select>
+      <button class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Crear</button>
+    </form>
+  </div>
+
+  <div class="overflow-x-auto bg-white/5 border border-white/10 rounded-3xl">
+    <table class="w-full text-xs text-slate-300">
+      <thead><tr class="text-left text-slate-400 border-b border-white/10">
+        <th class="p-4">Nombre</th><th class="p-4">Email</th><th class="p-4">Rol</th><th class="p-4">Activo</th><th class="p-4">Acciones</th>
+      </tr></thead>
+      <tbody>
+        {% for u in users %}
+        <tr class="border-b border-white/5">
+          <td class="p-4 text-white">{{ u.name }}</td>
+          <td class="p-4">{{ u.email }}</td>
+          <td class="p-4">{{ u.role }}</td>
+          <td class="p-4">{{ 'Sí' if u.is_active is not defined or u.is_active else 'No' }}</td>
+          <td class="p-4 flex gap-2 items-center">
+            <form method="POST" action="{{ url_for('main.admin_reset_password', user_id=u.id) }}" class="flex gap-1">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input name="password" type="password" minlength="8" placeholder="Nueva clave" class="px-2 py-1 rounded-lg bg-black/30 text-white text-2xs w-28">
+              <button class="text-amber-400 hover:text-amber-300 font-bold">Reset</button>
+            </form>
+            <form method="POST" action="{{ url_for('main.admin_delete_user', user_id=u.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="text-red-400 hover:text-red-300 font-bold">Desactivar</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

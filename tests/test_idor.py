@@ -92,7 +92,8 @@ def test_cliente_no_cancela_una_reserva_ya_confirmada(client, store, login_as, p
     propia = _crear_reserva_pendiente_del_cliente(client, store, post_csrf)
     # El personal confirma la reserva y ya no debe poder cancelarla el cliente.
     admin = next(u for u in store.available_users if u.role == "admin")
-    store.update_booking_status(admin, propia.id, "Confirmada")
+    store.register_payment(admin, propia.id, propia.total_price, "Tarjeta de Crédito")
+    assert store.update_booking_status(admin, propia.id, "Confirmada")["success"]
     assert propia.status == "Confirmada"
 
     post_csrf(client, f"/bookings/{propia.id}/cancel", {"reason": "should not work"})
@@ -162,9 +163,22 @@ def test_factura_ajena_devuelve_404_no_501(client, store, login_as):
     assert client.get(f"/payments/{ajena.id}/ncf").status_code == 404
 
 
+def _crear_reserva_con_saldo(store, email: str, total: float = 1000.0):
+    """Reserva propia sin pagos: garantiza saldo pendiente para probar pagos/facturas."""
+    from app.models import UserSession
+    cliente = next(c for c in store.clients if c.email == email)
+    admin = next(u for u in store.available_users if u.role == "admin")
+    resultado = store.create_booking(
+        admin, client_id=cliente.id, client_name=cliente.name, client_email=cliente.email,
+        travelers=1, total_price=total,
+    )
+    assert resultado["success"] is True, resultado
+    return resultado["booking"]
+
+
 def test_ncf_propio_devuelve_501_pendiente_p4(client, store, login_as):
     login_as(client, CLIENT_EMAIL)
-    propia = next(b for b in store.bookings if b.client_email == CLIENT_EMAIL)
+    propia = _crear_reserva_con_saldo(store, CLIENT_EMAIL)
     pago = _registrar_pago(store, propia)
     response = client.get(f"/payments/{pago.id}/ncf")
     assert response.status_code == 501
@@ -181,8 +195,9 @@ def _registrar_pago(store, reserva, monto=25.0):
 
 def _crear_pago_de_otro_cliente(store):
     """Pago sobre una reserva de otro cliente (setup explícito del test)."""
-    ajena = next(b for b in store.bookings
-                 if b.client_email and b.client_email != CLIENT_EMAIL)
+    ajena_email = next(b.client_email for b in store.bookings
+                       if b.client_email and b.client_email != CLIENT_EMAIL)
+    ajena = _crear_reserva_con_saldo(store, ajena_email)
     return _registrar_pago(store, ajena)
 
 
