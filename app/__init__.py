@@ -1,4 +1,5 @@
 """Fábrica de la aplicación Flask para DDN Travel."""
+import datetime
 import os
 
 from flask import Flask, jsonify, render_template, request
@@ -23,6 +24,32 @@ def usd2_filter(value):
         return value
 
 
+def fechahora_filter(value):
+    """Muestra un ``datetime`` de forma legible: ``YYYY-MM-DD HH:MM:SS``.
+
+    Decisión horaria: se conserva **UTC**, la zona en la que escribe
+    ``app.models.base.utcnow()`` (columna ``AuditLog.timestamp``). No se
+    convierte a hora local al renderizar porque:
+
+    * el instante mostrado no debe depender de la zona de la máquina que
+      atiende la petición (un cambio de servidor o de ``TZ`` en Docker
+      reescribiría silenciosamente la historia visible del log);
+    * las filas semilla de ``seed_data.json`` son marcas ``naive`` de P1 sin
+      zona horaria conocida: interpretarlas como UTC y desplazarlas produciría
+      horas falsas para eventos de demostración.
+
+    El formato coincide con el que ya serializa la API en
+    ``app.models.base._jsonable`` para no tener dos convenciones distintas.
+    """
+    if not isinstance(value, datetime.datetime):
+        return value
+    if value.tzinfo is not None:
+        # En PostgreSQL la columna se guarda con offset; se normaliza a UTC
+        # para que la columna de la tabla muestre una sola zona horaria.
+        value = value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def create_app(config_object=None):
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
     # Trust the single reverse proxy used by ngrok for public OAuth callbacks.
@@ -38,6 +65,7 @@ def create_app(config_object=None):
 
     app.jinja_env.filters["usd"] = usd_filter
     app.jinja_env.filters["usd2"] = usd2_filter
+    app.jinja_env.filters["fechahora"] = fechahora_filter
 
     # --- Base de datos y migraciones (P2) ---
     # La carpeta instance/ guarda la BD SQLite de desarrollo.

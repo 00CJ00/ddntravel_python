@@ -6,6 +6,9 @@ de la petición y que login/logout/fallo y el reset se auditan correctamente.
 """
 from __future__ import annotations
 
+import datetime as dt
+import re
+
 from conftest import ADMIN_EMAIL, DEMO_PASSWORD
 
 from app import audit
@@ -94,3 +97,31 @@ def test_reset_no_borra_la_auditoria(store):
     assert total_despues >= total_antes
     assert _ultimo("CREAR_CLIENTE") is not None
     assert _ultimo("RESET_DATOS") is not None
+
+
+def test_filtro_fechahora_formatea_y_conserva_utc(app):
+    """``|fechahora`` imprime ``YYYY-MM-DD HH:MM:SS`` sin microsegundos.
+
+    Los instantes con zona (la columna se escribe con ``utcnow()``) se
+    normalizan a UTC; los valores no fecha pasan sin romper la plantilla.
+    """
+    filtro = app.jinja_env.filters["fechahora"]
+
+    naive = dt.datetime(2026, 10, 6, 14, 8, 38, 734000)
+    assert filtro(naive) == "2026-10-06 14:08:38"
+
+    con_zona = dt.datetime(2026, 10, 6, 14, 8, 38,
+                           tzinfo=dt.timezone(dt.timedelta(hours=-4)))
+    assert filtro(con_zona) == "2026-10-06 18:08:38"
+
+    assert filtro(None) is None
+    assert filtro("2026-08-18 11:20:45") == "2026-08-18 11:20:45"
+
+
+def test_pagina_auditoria_no_muestra_microsegundos(client, login_as):
+    """``/audit`` muestra la hora legible y nunca el DateTime crudo con ``.`` """
+    login_as(client, ADMIN_EMAIL)
+    html = client.get("/audit").get_data(as_text=True)
+
+    assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", html)
+    assert not re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+", html)
