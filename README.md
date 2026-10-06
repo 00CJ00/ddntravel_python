@@ -68,35 +68,67 @@ static/
 
 ## Instalación
 
+En Windows, ejecuta estos comandos desde la raíz del repositorio en PowerShell.
+Usar un entorno virtual evita mezclar las dependencias del proyecto con las de
+otros proyectos:
+
 ```bash
-cd ddntravel_python
-pip install -r requirements.txt        # Flask, python-dotenv, google-genai,
-                                         # flask-dance, reportlab
-cp .env.example .env                     # Edita y coloca GEMINI_API_KEY (opcional)
-# Opcional: configura GOOGLE_CLIENT_ID/SECRET en .env para login con Google
+python --version
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt  # opcional: pytest, coverage y ruff
 ```
 
-## Ejecutar
+Si PowerShell impide activar el entorno virtual, ejecuta los comandos usando
+directamente `.\.venv\Scripts\python.exe` en lugar de `python`, por ejemplo:
 
 ```bash
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+La configuración de `.env` es opcional para desarrollo: si no defines
+`SECRET_KEY`, se genera una clave temporal al iniciar la aplicación. Para
+habilitar Gemini u OAuth de Google, copia la plantilla con
+`Copy-Item .env.example .env` y completa únicamente las variables necesarias.
+No compartas ni subas `.env`.
+
+## Primera ejecución
+
+Antes de iniciar el servidor por primera vez, crea el esquema SQLite y carga
+los datos de demostración:
+
+```bash
+python -m flask --app wsgi db upgrade
+python -m flask --app wsgi seed
 python run.py
 ```
 
-La app estará disponible en **http://localhost:3000**.
+La aplicación estará disponible en **http://127.0.0.1:3000**. Comprueba que
+está respondiendo en **http://127.0.0.1:3000/api/health**; debe devolver HTTP
+200 y `{"status":"ok","app":"DDN Travel Server (Python)"}`.
+
+Si aparece `ModuleNotFoundError` (por ejemplo, `flask_wtf` o `sqlalchemy`),
+instala los requisitos con el mismo intérprete con el que ejecutarás la app:
+`python -m pip install -r requirements.txt`. Evita usar `pip` sin `python -m`,
+porque podría instalar paquetes en otro Python. Para ejecutar los tests instala
+también `requirements-dev.txt` y corre `python -m pytest tests -q`.
 
 ## Base de datos: migraciones, seed y respaldos
 
 La persistencia usa **SQLAlchemy + Alembic** (SQLite en desarrollo,
-PostgreSQL en producción vía `DATABASE_URL`). Desde una instalación limpia:
+PostgreSQL en producción vía `DATABASE_URL`). Los comandos de la primera
+ejecución crean el esquema mediante las migraciones y cargan el seed de forma
+idempotente. Después de instalar una migración nueva, ejecuta:
 
 ```bash
-flask db upgrade        # crea el esquema (migraciones/versions/)
-flask seed              # carga app/seed_data.json de forma idempotente
-python run.py
+python -m flask --app wsgi db upgrade
 ```
 
 - `flask seed --reset` vuelve a sembrar desde cero, pero **solo en desarrollo**
-  (`FLASK_ENV=development`); en producción el comando falla.
+  (`FLASK_ENV=development`); en producción el comando falla. Para invocarlo
+  explícitamente en Windows: `python -m flask --app wsgi seed --reset`.
 - La primera migración usa `render_as_batch=True` para que SQLite soporte los
   `ALTER TABLE` de fases posteriores.
 
