@@ -4,18 +4,20 @@
 > Todos los datos de este documento son reproducibles con los comandos de la
 > sección final. Fase cerrada el 2026-10-05 sobre la rama `fase-P2`.
 >
-> Rama: `fase-P2` (10 commits desde `24c3015`). **No se ha hecho merge a `main`
+> Rama: `fase-P2` (14 commits desde `24c3015`). **No se ha hecho merge a `main`
 > ni push**: queda pendiente de revisión.
 
 ## 1. Veredicto
 
 | Comprobación | Resultado |
 |---|---|
-| Suite automática | **213 passed, 0 skipped**, 1 warning ajeno (`google.genai`) |
+| Suite automática | **216 passed, 0 skipped**, 1 warning ajeno (`google.genai`) |
 | Criterio 1 — clon limpio de punta a punta | **PASS** (venv nuevo, sin `instance/`, sin `.env`) |
 | Criterio 2 — `grep -rn "state.json" app/` | **PASS**: 2 únicas coincidencias, ambas en `app/billing.py` (deuda P4) |
-| Criterio 3 — pytest en verde | **PASS**: 213/213 |
+| Criterio 3 — pytest en verde | **PASS**: 216/216 |
 | Smoke test manual (servidor real, 3 roles) | **0 fallos** en 56 comprobaciones |
+| Paridad P1 → P2 (A/B contra `main` real) | **0 diferencias** en 92 peticiones, 0 respuestas 5xx |
+| Regresiones de la paridad | las 3 encontradas están **corregidas** (sección 6.11–6.13) |
 | `flask db upgrade` desde cero | 21 tablas + `alembic_version` |
 | `flask db downgrade base` + re-`upgrade` | OK (deja solo `alembic_version` y reconstruye) |
 | `db.create_all()` en código de aplicación | ninguno (solo en `tests/conftest.py`) |
@@ -85,8 +87,12 @@ documentado, pero el resto de la suite no esconde ninguna omisión.
 | `7eb09d8` | 8 — migración inicial Alembic (`render_as_batch`) y pruebas de upgrade/downgrade |
 | `1dc6419` | 9 — respaldos (SQLite/PostgreSQL) con restauración verificada y documentación |
 | `e6b9a09` | 10 — verificación de aceptación (clon limpio, smoke 3 roles) y formato de códigos fijado con tests |
+| `3683b8b` | acta de cierre de la fase P2 |
+| `6915217` | arreglo 1 — filtro `|usd` en los precios del catálogo en crudo |
+| `2292f04` | arreglo 2 — filtro `|fechahora` para el timestamp de auditoría |
+| `5878b28` | arreglo 3 — `lazy="selectin"` en `Booking.passengers` (elimina el N+1) |
 
-## 4. Pruebas automáticas (213)
+## 4. Pruebas automáticas (216)
 
 | Archivo | Pruebas | Cubre |
 |---|---:|---|
@@ -101,11 +107,12 @@ documentado, pero el resto de la suite no esconde ninguna omisión.
 | `tests/test_store.py` | 8 | RN-01, RN-02, RN-03 y persistencia real en BD |
 | `tests/test_seed.py` | 7 | idempotencia, `--reset`, CLI, formato de códigos de reserva |
 | `tests/test_csrf_client.py` | 7 | `X-CSRFToken` en `fetch` (P1) |
-| `tests/test_audit.py` | 5 | before/after, login/logout, insert-only de `AuditLog` |
+| `tests/test_audit.py` | 7 | before/after, login/logout, insert-only de `AuditLog`, filtro `|fechahora` y render sin microsegundos |
 | `tests/test_inventory.py` | 5 | `decrement_if_available` y hold de cupos de paquetes |
+| `tests/test_n_plus_1.py` | 1 | `Booking.passengers` sin N+1: consultas independientes del número de filas |
 | `tests/test_seed_encoding.py` | 4 | codificación de la semilla (P0) |
 | `tests/test_migrations.py` | 3 | `upgrade` desde cero, `downgrade base` + re-`upgrade`, `render_as_batch` |
-| **Total** | **213** | **0 omitidas** |
+| **Total** | **216** | **0 omitidas** |
 
 ## 5. Smoke test manual con los 3 roles
 
@@ -168,7 +175,40 @@ Bugs y trampas reales encontrados al ejecutar la fase:
    fijada con dos tests, no un descuido.
 9. **`to_int` importado y sin usar** en `app/store.py` (resto del módulo legacy).
 10. **Dos comentarios rompían el criterio 2** (`state.json` en `app/extensions.py`
-    y `app/store.py`): reescritos sin pérdida de sentido.
+     y `app/store.py`): reescritos sin pérdida de sentido.
+
+### Hallazgos de la verificación de paridad P1 → P2 (corregidos)
+
+Tras cerrar la fase se levantó en paralelo la rama `main` real (worktree con su
+`state.json`) y `fase-P2` (BD), con semillas idénticas y la misma batería de 92
+peticiones por servidor. Resultado: **0 diferencias de estado de respuesta** y
+0 respuestas 5xx en 708 peticiones servidas. Las únicas diferencias observables
+fueron tres, todas corregidas a continuación:
+
+11. **Precios del catálogo sin formatear.** Con `state.json` la app imprimía
+    `$1350` (enteros del JSON); con SQLAlchemy imprime `$1350.00` (el `Decimal`
+    de la columna). Causa: 11 puntos de plantilla renderizaban el precio sin el
+    filtro `|usd` mientras el resto de la app lo usaba (`$2,500` de las reservas).
+    **Corregido en `6915217`**: se aplica `|usd` en 11 puntos (las otras 8
+    coincidencias del patrón eran plazas/capacidades/categorías, no dinero, y el
+    atributo `data-price` de los modales se deja en crudo para el JS). Resultado:
+    el catálogo muestra el mismo formato que el resto de la app.
+12. **Timestamp de auditoría con microsegundos.** `templates/audit.html` imprimía
+    el `DateTime` crudo (`2026-10-06 14:08:38.734000`). **Corregido en
+    `2292f04`**: filtro `|fechahora` que normaliza a UTC y formatea
+    `YYYY-MM-DD HH:MM:SS`. Decisión documentada en el comentario del filtro:
+    se conserva UTC (zona en la que escribe `utcnow()`, `AuditLog.timestamp`) y
+    no se convierte a hora local porque el instante no debe depender del `TZ` de
+    la máquina que atiende la petición ni de desplazar las filas semilla de P1,
+    que son `naive` sin zona conocida. El formato coincide con el de la API
+    (`_jsonable`).
+13. **N+1 en el listado de reservas.** `Booking.passengers` usaba la carga por
+    defecto (`select`): una consulta `booking_passengers` por cada reserva, 22 SQL
+    con 3 reservas y 79 con 60 (las 57 de más eran todas SELECTs de pasajeros).
+    **Corregido en `5878b28`** con `lazy="selectin"` (carga en un solo lote).
+    Verificación con el mismo método: **21 SQL con 3 reservas y 21 con 60**
+    (`booking_passengers` 2 y 2), y `tests/test_n_plus_1.py` falla si el N+1
+    reaparece.
 
 ## 7. Deuda trasladada a fases siguientes
 
