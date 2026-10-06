@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_migrate import Migrate
+from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
 
 #: Protección CSRF de todos los formularios y peticiones fetch de la app.
@@ -16,3 +18,9 @@ csrf = CSRFProtect()
 
 #: Limitador de peticiones por IP (anti fuerza bruta y anti abuso).
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
+#: ORM de la aplicación (SQLAlchemy). Sustituye al antiguo archivo JSON de estado.
+db = SQLAlchemy()
+
+#: Migraciones de esquema (Alembic) gestionadas con ``flask db ...``.
+migrate = Migrate()

@@ -8,7 +8,6 @@ la propiedad del registro (``owned_or_404``). La matriz de permisos es la
 from __future__ import annotations
 import os
 import re
-from datetime import date
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session, jsonify,
@@ -17,7 +16,6 @@ from flask import (
 from werkzeug.security import check_password_hash
 
 from .store import store
-from .models import Client, UserSession, new_id
 from . import ai_service
 from .extensions import limiter
 from .view import store_view
@@ -83,12 +81,8 @@ def redirect_back(default_endpoint: str):
 
 
 def find_payment(payment_id: str):
-    """Busca un pago por su identificador.
-
-    El repositorio definitivo (``store.get_payment``) llega en la fase P4,
-    junto con la secuencia de NCF y el PDF de factura reales.
-    """
-    return next((p for p in store.payments if p.id == payment_id), None)
+    """Busca un pago por su identificador a través del repositorio."""
+    return store.get_payment(payment_id)
 
 
 def not_implemented_yet(feature: str):
@@ -180,15 +174,23 @@ def login():
         if user is not None and getattr(user, "password_hash", None) \
                 and check_password_hash(user.password_hash, password):
             session["user_id"] = user.id
+            store.record_event("INICIO_SESION", "Autenticación", user=user,
+                               details=f"Inicio de sesión correcto de {user.email}.")
             flash(f"Bienvenido, {user.name.split(' (')[0]}.", "success")
             return redirect(url_for("main.index"))
         error = "Correo o contraseña incorrectos."
+        store.record_event("INICIO_SESION_FALLIDO", "Autenticación", user_name=email or "(vacío)",
+                           details=f"Intento de inicio de sesión fallido para {email or '(vacío)'}.")
     return render_template("login.html", error=error, google_enabled=google_bp_enabled)
 
 
 @bp.route("/logout", methods=["POST"])
 @permission_required("session:logout")
 def logout():
+    user = get_current_user()
+    if user is not None:
+        store.record_event("CIERRE_SESION", "Autenticación", user=user,
+                           details=f"Cierre de sesión de {user.email}.")
     session.clear()
     for key in ("google_token", "google_oauth_state"):
         session.pop(key, None)
@@ -262,7 +264,7 @@ def admin_add_destination():
     return jsonify({"success": True, "id": dest.id, "name": dest.name})
 
 
-@bp.route("/admin/destinations/<dest_id>", methods=["POST"])
+@bp.route("/admin/destinations/<int:dest_id>", methods=["POST"])
 @permission_required("catalog:edit")
 def admin_edit_destination(dest_id):
     data = request.form
@@ -436,7 +438,7 @@ def reset_data():
     return redirect(url_for("main.login"))
 
 
-@bp.route("/notifications/<notif_id>/read", methods=["POST"])
+@bp.route("/notifications/<int:notif_id>/read", methods=["POST"])
 @permission_required("notifications:read")
 def read_notification(notif_id):
     store.mark_notification_as_read(notif_id)
@@ -497,7 +499,7 @@ def new_booking():
                                       "asociar a la reserva.")
 
     base_price = package.price_usd if package else (
-        (hotel.room_types[0]["price_per_night"] if hotel and getattr(hotel, "room_types", None) else 300))
+        (hotel.room_types[0].price_per_night if hotel and getattr(hotel, "room_types", None) else 300))
     flight_addon = (flight.price_usd * travelers) if flight else 0
     raw_total = (base_price * travelers) + flight_addon
 
@@ -549,7 +551,7 @@ def new_booking():
     return redirect(url_for("main.bookings"))
 
 
-@bp.route("/bookings/<booking_id>/cancel", methods=["POST"])
+@bp.route("/bookings/<int:booking_id>/cancel", methods=["POST"])
 @permission_required("bookings:cancel")
 def cancel_booking(booking_id):
     """Cancela una reserva verificando propiedad y estado (IDOR)."""
@@ -563,7 +565,7 @@ def cancel_booking(booking_id):
     return redirect_back(default)
 
 
-@bp.route("/bookings/<booking_id>/status", methods=["POST"])
+@bp.route("/bookings/<int:booking_id>/status", methods=["POST"])
 @permission_required("bookings:status")
 def update_booking_status(booking_id):
     """Cambia el estado de una reserva (solo personal interno; RN-03 en P3)."""
@@ -615,10 +617,10 @@ def new_promotion():
     return redirect(url_for("main.promotions"))
 
 
-@bp.route("/promotions/<promo_id>/toggle", methods=["POST"])
+@bp.route("/promotions/<int:promo_id>/toggle", methods=["POST"])
 @permission_required("promotions:toggle")
 def toggle_promotion(promo_id):
-    store.toggle_promotion_status(promo_id)
+    store.toggle_promotion_status(get_current_user(), promo_id)
     return redirect(url_for("main.promotions"))
 
 
@@ -655,7 +657,7 @@ def new_document():
     return redirect(url_for("main.documents"))
 
 
-@bp.route("/documents/<doc_id>/delete", methods=["POST"])
+@bp.route("/documents/<int:doc_id>/delete", methods=["POST"])
 @permission_required("documents:delete")
 def delete_document(doc_id):
     """Elimina un documento. Solo administradores (RN-04).
@@ -677,13 +679,7 @@ def api_predictive_analytics():
     data = request.get_json(force=True, silent=True) or {}
     timeframe = data.get("selectedTimeframe", "Próximos 6 meses")
     result = ai_service.get_predictive_analytics(store.clients, store.bookings, store.packages, timeframe)
-    store.predictive_data = result
-    store.persist()
-    store.log_action(get_current_user().id, get_current_user().name, "EJECUCIÓN_PREDICCIÓN_IA",
-                      "Motor IA Predictivo", f"Análisis de comportamiento de compra generado para periodo: {timeframe}")
-    store.add_notification("Estadísticas Predictivas Actualizadas",
-                            "El motor de Inteligencia Artificial completó la predicción de demanda y propensión de compra.",
-                            "success", "ai-predictive")
+    store.record_prediction(get_current_user(), timeframe, result)
     return jsonify({"success": True, "data": result})
 
 
@@ -751,40 +747,9 @@ def google_login():
     return redirect(url_for("main.google.login"))
 
 
-def _find_or_create_client_session(email: str, name: str, avatar: str | None = None) -> UserSession:
-    """Crea (o reutiliza) la sesión de cliente para el correo de Google."""
-    existing = next((u for u in store.available_users if u.email.lower() == email.lower()), None)
-    if existing:
-        if avatar:
-            existing.avatar = avatar
-        return existing
-    user = UserSession(
-        id=new_id("usr-g"),
-        name=f"{name} (Cliente Viajero)",
-        email=email,
-        role="client",
-        department="Cliente Registrado",
-        avatar=avatar or "",
-        google_id=email,
-    )
-    store.available_users.append(user)
-    if not any(c.email.lower() == email.lower() for c in store.clients):
-        store.clients.append(Client(
-            id=new_id("cli"),
-            name=name,
-            email=email,
-            phone="+1 (000) 000-0000",
-            document_id=f"GGL-{email}",
-            category="Estándar",
-            status="Activo",
-            trips_count=0,
-            total_spent=0,
-            registration_date=date.today().isoformat(),
-            preferred_destinations=[],
-            avatar=avatar or "",
-        ))
-    store.persist()
-    return user
+def _find_or_create_client_session(email: str, name: str, avatar: str | None = None):
+    """Reutiliza o crea la cuenta y la ficha del cliente que entra con Google."""
+    return store.find_or_create_google_user(email, name, avatar=avatar or "")
 
 
 @bp.route("/login/google/complete")
@@ -806,6 +771,8 @@ def google_authorized():
     name = data.get("name", email.split("@")[0])
     user = _find_or_create_client_session(email, name, avatar=data.get("picture"))
     session["user_id"] = user.id
+    store.record_event("INICIO_SESION", "Autenticación", user=user,
+                       details=f"Inicio de sesión con Google de {user.email}.")
     flash(f"Bienvenido, {user.name.split(' (')[0]} (acceso con Google).", "success")
     return redirect(url_for("main.client_portal"))
 
@@ -935,7 +902,7 @@ def server_error(_e):
 # ----------------------------------------------------------------------
 # Facturación RD: NCF y PDF de factura
 # ----------------------------------------------------------------------
-@bp.route("/payments/<payment_id>/ncf", methods=["GET"])
+@bp.route("/payments/<int:payment_id>/ncf", methods=["GET"])
 @permission_required("payments:invoice")
 def payment_ncf(payment_id):
     """NCF de un pago. Autorización y propiedad ya comprobadas; la emisión
@@ -946,7 +913,7 @@ def payment_ncf(payment_id):
     return not_implemented_yet("La emisión del NCF")
 
 
-@bp.route("/payments/<payment_id>/factura", methods=["GET"])
+@bp.route("/payments/<int:payment_id>/factura", methods=["GET"])
 @permission_required("payments:invoice")
 def payment_factura(payment_id):
     """Factura PDF de un pago. Autorización y propiedad ya comprobadas; el

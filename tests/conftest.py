@@ -15,13 +15,15 @@ import re
 import sys
 
 import pytest
+from flask import g
+from sqlalchemy.pool import StaticPool
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-import app.routes as routes_module  # noqa: E402
 import app.store as store_module  # noqa: E402
-from app import create_app  # noqa: E402
+from app import create_app, seed as seed_module  # noqa: E402
 from app.config import DevelopmentConfig  # noqa: E402
+from app.extensions import db  # noqa: E402
 
 # El token CSRF que Flask-WTF inserta en los formularios.
 CSRF_INPUT_RE = re.compile(r'name="csrf_token"[^>]*value="([^"]+)"')
@@ -45,6 +47,12 @@ class TestingConfig(DevelopmentConfig):
     RATELIMIT_ENABLED = False
     ENABLE_RESET = "0"
     ENABLE_DEV_SWITCH = "0"
+    # Base de datos aislada por prueba, en memoria y compartida entre conexiones.
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "connect_args": {"check_same_thread": False},
+        "poolclass": StaticPool,
+    }
 
 
 class TestingConfigRateLimit(TestingConfig):
@@ -54,32 +62,52 @@ class TestingConfigRateLimit(TestingConfig):
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch):
-    """DataStore limpio a partir de la semilla, sin tocar el estado real."""
-    monkeypatch.setattr(store_module, "STATE_PATH", tmp_path / "state.json")
-    st = store_module.DataStore()
-    st.reset_all_data(log=False)
-    # Los módulos que hacen ``from .store import store`` guardan su propia
-    # referencia; se redirigen todas para que las pruebas sean aisladas.
-    for module in (store_module, routes_module):
-        monkeypatch.setattr(module, "store", st, raising=False)
-    return st
+def app():
+    """Aplicación de pruebas con base de datos en memoria sembrada.
+
+    El contexto de aplicación se mantiene durante toda la prueba para que la
+    sesión de SQLAlchemy sea la misma en los accesos directos al ``store`` y en
+    las peticiones HTTP del cliente de pruebas.
+    """
+    application = create_app(TestingConfig)
+    ctx = application.app_context()
+    ctx.push()
+    db.drop_all()
+    db.create_all()
+    seed_module.seed_database(reset=True)
+
+    # El contexto de aplicación vive durante toda la prueba (para que el
+    # ``store`` y las peticiones compartan la misma sesión de SQLAlchemy).
+    # Como ``g`` es por contexto (no por petición), Flask-WTF cachearía el token
+    # CSRF y su validación entre peticiones; se limpia al iniciar cada una.
+    def _limpiar_csrf_en_g():
+        g.pop("csrf_token", None)
+        g.pop("csrf_valid", None)
+
+    application.before_request_funcs.setdefault(None, []).insert(0, _limpiar_csrf_en_g)
+
+    try:
+        yield application
+    finally:
+        db.session.remove()
+        db.drop_all()
+        ctx.pop()
 
 
 @pytest.fixture
-def make_app(store):
+def store(app):
+    """Instancia global del ``DataStore`` sobre la BD de la prueba."""
+    return store_module.store
+
+
+@pytest.fixture
+def make_app():
     """Factoría de aplicaciones con configuración de pruebas."""
     def _factory(config_object=TestingConfig, **overrides):
-        app = create_app(config_object)
-        app.config.update(overrides)
-        return app
+        application = create_app(config_object)
+        application.config.update(overrides)
+        return application
     return _factory
-
-
-@pytest.fixture
-def app(make_app):
-    """Aplicación de pruebas (CSRF activo, sin rate limiting)."""
-    return make_app()
 
 
 @pytest.fixture
@@ -91,9 +119,27 @@ def client(app):
 
 @pytest.fixture
 def client_ratelimit(make_app):
-    """Cliente HTTP con el rate limiting activo (para probar /login)."""
-    with make_app(TestingConfigRateLimit).test_client() as test_client:
-        yield test_client
+    """Cliente HTTP con el rate limiting activo, sobre una app aislada."""
+    application = make_app(TestingConfigRateLimit)
+    ctx = application.app_context()
+    ctx.push()
+    db.drop_all()
+    db.create_all()
+    seed_module.seed_database(reset=True)
+
+    def _limpiar_csrf_en_g():
+        g.pop("csrf_token", None)
+        g.pop("csrf_valid", None)
+
+    application.before_request_funcs.setdefault(None, []).insert(0, _limpiar_csrf_en_g)
+
+    try:
+        with application.test_client() as test_client:
+            yield test_client
+    finally:
+        db.session.remove()
+        db.drop_all()
+        ctx.pop()
 
 
 # ----------------------------------------------------------------------

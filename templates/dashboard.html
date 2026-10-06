@@ -128,7 +128,7 @@
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-1">
                 <h4 class="text-xs font-bold text-white truncate">{{ pkg.title }}</h4>
-                <span class="text-xs font-bold text-emerald-400 shrink-0">${{ pkg.price_usd }}</span>
+                <span class="text-xs font-bold text-emerald-400 shrink-0">${{ pkg.price_usd|usd }}</span>
               </div>
               <p class="text-3xs text-slate-400 truncate">{{ pkg.destination_name }} • {{ pkg.duration_days }}D / {{ pkg.duration_nights }}N</p>
               <div class="mt-1 flex items-center justify-between text-3xs">

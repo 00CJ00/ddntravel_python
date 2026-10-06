@@ -66,7 +66,7 @@ def test_modales_de_cliente_no_ofrecen_reservas_ajenas(client, store, login_as):
     assert ajenas, "la semilla debe tener reservas de otros clientes"
     assert "DDN-2026-" in html, "el cliente deberia ver al menos su propia reserva"
     for reserva in ajenas:
-        assert reserva.id not in html
+        assert reserva.booking_code not in html
 
 
 def test_cliente_no_ve_hoteles_ni_vuelos_internos(client, store, login_as):
@@ -87,10 +87,12 @@ def test_admin_sigue_viendo_todos_los_clientes(client, store, login_as):
 
 def test_store_view_filtra_por_propiedad(store):
     """Prueba unitaria de la vista, sin pasar por HTTP."""
-    from app.view import store_view
-    from app.models import UserSession
+    from types import SimpleNamespace
 
-    usuario = UserSession(id="usr-x", name="Cliente X", email=CLIENT_EMAIL, role="client", avatar="")
+    from app.view import store_view
+
+    usuario = SimpleNamespace(id="usr-x", name="Cliente X", email=CLIENT_EMAIL,
+                              role="client", avatar="")
     vista = store_view(store, usuario)
     assert vista.clients, "el cliente debe ver su propia ficha"
     assert all(c.email == CLIENT_EMAIL for c in vista.clients)

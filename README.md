@@ -18,27 +18,47 @@ run.py                  # Punto de entrada: crea la app Flask y la inicia en el 
 
 app/
   __init__.py           # Fábrica create_app(): configura Flask, filtros Jinja2,
-                        # carga blueprint routes.bp y carga datos de semilla
-  models.py              # Clase base Entity y subclasses: Client, Booking,
-                        # TourPackage, Hotel, Flight, PaymentTransaction,
-                        # Promotion, AuditLog, TravelDocument, etc.
-                        # - Entities carry id, to_dict(), update(), describe()
-                        # - RN-01: TourPackage.has_availability(travelers) valida slots
-                        # - RN-03: Booking usa initial_payment vs total_price para status
-  store.py               # Singleton DataStore: estado en memoria + persistencia a
-                        # app/state.json. Todas las mutaciones van por auto_save()
-                        # que grava state.json después de cada operación.
-                        # - Métodos clave: create_booking(), register_payment(),
-                        #   apply_promo_code(), add_client(), update_client(), etc.
+                        # extensión SQLAlchemy, Migrate (render_as_batch), CSRF,
+                        # rate limiting y registra los comandos de la CLI
+  config.py             # Config / DevelopmentConfig / ProductionConfig; todo se
+                        # lee de variables de entorno (python-dotenv)
+  extensions.py         # Instancias compartidas: db, migrate, csrf, limiter
+  models/               # Modelos SQLAlchemy (uno por agregado): Client, Booking,
+                        # Package, Hotel, RoomType, Flight, Transport, Activity,
+                        # Payment, Promotion, AuditLog, TravelDocument, Notification,
+                        # Itinerary, NcfSequence, Setting, User
+                        # - BaseEntity aporta to_dict(), describe() y publicado()
+                        # - Sin ñoñería de IDs: PK enteras autoincrementales
+  repositories/         # Acceso a datos por agregado (create/update/delete/list).
+                        # Toda mutación escribe auditoría (RN-05) en la misma
+                        # transacción y devuelve entidades con los nombres de
+                        # atributo que usan las plantillas.
+  store.py               # Fachada DataStore: conserva las firmas que usan las
+                        # rutas (create_booking, register_payment, add_client...)
+                        # sobre los repositorios. El commit/rollback se
+                        # centraliza aquí (_commit/_rollback), una sesión por
+                        # petición.
+  audit.py              # registro de auditoría con before/after, metadatos de
+                        # petición (IP, user agent) y helpers de login/logout
+  backup.py             # Respaldo y restauración: SQLite con
+                        # sqlite3.Connection.backup(), PostgreSQL con pg_dump
+  cli.py                # Comandos ``flask seed`` y ``flask backup``
   ai_service.py          # Gemini (google-genai) con fallback de datos simulados
                         # si no hay GEMINI_API_KEY. 3 funciones:
                         #   get_predictive_analytics(), get_recommendations(),
                         #   get_itinerary()
   routes.py              # Todas las rutas Flask (auth, bookings, AI, billing,
                         # documents, audit, OAuth). Define blueprint "main".
+  permissions.py        # Matriz de permisos por rol (única fuente de verdad)
+  seed.py               # Carga app/seed_data.json mapeando los ids antiguos a
+                        # enteros y conservando las relaciones
   seed_data.json          # Datos iniciales de demo (portados del original).
-  state.json              # Estado persistente del servidor: sobrevive reinicios.
-                        # Borrar + reiniciar fuerza carga fresca de seed_data.json
+
+migrations/            # Alembic: env.py, alembic.ini y versions/ (migraciones)
+instance/              # ddn.db (SQLite de desarrollo); ignorado por git
+backups/               # Respaldos generados por ``flask backup``; ignorado por git
+scripts/backup.py      # Respaldo/restauración sin contexto de Flask
+scripts/fix_mojibake.py # Corrección de codificación de app/seed_data.json
 
 templates/               # Plantillas Jinja2 HTML (dashboard, login, bookings,
                         # ai_predictive, client_portal, audit, payments, etc.)
@@ -63,6 +83,47 @@ python run.py
 ```
 
 La app estará disponible en **http://localhost:3000**.
+
+## Base de datos: migraciones, seed y respaldos
+
+La persistencia usa **SQLAlchemy + Alembic** (SQLite en desarrollo,
+PostgreSQL en producción vía `DATABASE_URL`). Desde una instalación limpia:
+
+```bash
+flask db upgrade        # crea el esquema (migraciones/versions/)
+flask seed              # carga app/seed_data.json de forma idempotente
+python run.py
+```
+
+- `flask seed --reset` vuelve a sembrar desde cero, pero **solo en desarrollo**
+  (`FLASK_ENV=development`); en producción el comando falla.
+- La primera migración usa `render_as_batch=True` para que SQLite soporte los
+  `ALTER TABLE` de fases posteriores.
+
+### Respaldos
+
+```bash
+flask backup                          # respaldo en backups/ (marca de tiempo)
+flask backup --keep 20                # conserva los 20 más recientes
+flask backup --list                   # lista los respaldos existentes
+flask backup --restore backups/ddn-20261005-151740.db
+
+python scripts/backup.py              # equivalente sin contexto de Flask
+python scripts/backup.py --restore <archivo>
+```
+
+- SQLite se copia con `sqlite3.Connection.backup()`, que genera una copia
+  consistente aunque la base esté en uso. PostgreSQL se vuelca con `pg_dump`
+  (formato `custom`) y se restaura con `pg_restore`.
+- Solo se conservan los `BACKUP_KEEP` respaldos más recientes (10 por defecto).
+- Antes de sobrescribir la base, `--restore` verifica la integridad del archivo
+  (`PRAGMA integrity_check`) y que contenga el esquema esperado, y deja una copia
+  de la base anterior en `backups/pre-restore-<marca>.db`.
+- `backups/` está en `.gitignore`: los respaldos nunca se versionan.
+- **El camino PostgreSQL está escrito pero sin probar en este entorno** (no hay
+  servidor ni driver configurados). Se verificará en la fase P9, que instalará el
+  driver y definirá `DATABASE_URL`. El camino SQLite sí está cubierto por pruebas
+  reales en `tests/test_backup.py`.
 
 ## Configuración de IA (Gemini)
 
@@ -137,7 +198,7 @@ disponibles para edición incluyen:
 
 Puede actualizar la información de cualquier cliente desde el panel de
 administración (`/clients`), utilizando el método `update_client` del DataStore,
-que persiste los cambios automáticamente en `app/state.json`.
+que persiste el cambio en la base de datos dentro de su transacción.
 
 ### Para clientes (portal):
 
@@ -151,14 +212,17 @@ los módulos de la aplicación y quedan auditados en el módulo de Auditoría
 
 ## Persistencia de datos
 
-- `app/state.json`: se actualiza después de cada operación significativa. Los
-  datos **sobreviven al reinicio del servidor**.
-- Para volver al estado inicial: usar "Restablecer Datos Iniciales" en la UI,
-  o borrar `app/state.json` y reiniciar.
+- Base de datos SQLAlchemy en `instance/ddn.db` (SQLite en desarrollo;
+  `DATABASE_URL` apunta a PostgreSQL en producción). **No se usa `state.json`**:
+  el esquema vive en `migrations/` y los datos sobreviven al reinicio del
+  servidor porque cada operación se confirma en su transacción.
+- Para volver al estado inicial: usar "Restablecer Datos Iniciales" en la UI
+  (solo admin y con `ENABLE_RESET=1`), o `flask seed --reset` en desarrollo.
 - Las reservas validan disponibilidad (RN-01), exigen cliente asociado (RN-02)
   y calculan estado de pago (RN-03) igual que la versión original.
-- El módulo de Auditoría (RN-05) registra todas las acciones relevantes; visible
-  solo para el rol Administrador.
+- El módulo de Auditoría (RN-05) registra todas las acciones relevantes con su
+  valor anterior y posterior, dentro de la misma transacción que el cambio;
+  visible solo para el rol Administrador.
 
 ## Ejecutar los tests
 
@@ -168,7 +232,10 @@ python -m pytest tests -v
 
 Cubren:
 - Reglas de negocio RN-01 a RN-03 (disponibilidad, cliente obligatorio, cálculo de pago)
-- Persistencia de datos
+- Persistencia de datos y auditoría con before/after (RN-05)
 - Flujo de login y permisos por rol
-- Pruebas de aislamiento: cada test fixture reemplaza `STATE_PATH` con `tmp_path`,
-  nunca se modifica el `state.json` real
+- Migraciones Alembic: `upgrade` desde cero, `downgrade base` y re-aplicación
+- Respaldos: copia funcional, restauración, integridad y conservación de los
+  `BACKUP_KEEP` más recientes
+- Pruebas de aislamiento: cada test usa una base SQLite en memoria (o en
+  `tmp_path`), nunca la base de desarrollo de `instance/`

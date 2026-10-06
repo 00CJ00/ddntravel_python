@@ -49,7 +49,7 @@
           <p class="text-xs font-bold text-white truncate">{{ pkg.title }}</p>
           <p class="text-2xs text-slate-400">{{ pkg.destination_name }}</p>
           <div class="flex items-center justify-between pt-1">
-            <span class="text-emerald-400 font-bold text-xs">${{ pkg.price_usd }}</span>
+            <span class="text-emerald-400 font-bold text-xs">${{ pkg.price_usd|usd }}</span>
             <button onclick="openNewBookingModal('{{ pkg.id }}')" class="text-2xs font-bold text-indigo-400 hover:text-indigo-300">Reservar</button>
           </div>
         </div>
