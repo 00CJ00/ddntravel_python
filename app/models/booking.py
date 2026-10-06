@@ -43,8 +43,12 @@ class Booking(BaseEntity, db.Model):
     code = synonym("booking_code")
 
     client = db.relationship("Client")
+    # lazy="selectin": los pasajeros se cargan en una sola consulta por lote
+    # (WHERE booking_id IN (...)) en vez de una consulta por cada reserva. Sin
+    # esto /bookings dispara N+1: 22 consultas con 3 reservas y 79 con 60.
     passengers = db.relationship(
-        "BookingPassenger", back_populates="booking", cascade="all, delete-orphan")
+        "BookingPassenger", back_populates="booking", cascade="all, delete-orphan",
+        lazy="selectin")
 
     # -- compatibilidad con las plantillas (valores derivados de la relación) --
     @property
