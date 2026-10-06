@@ -134,8 +134,8 @@ PUBLIC_ENDPOINTS = frozenset({
     "main.set_theme",
     "main.google_login",
     "main.google_authorized",
-    "google.login",
-    "google.authorized",
+    "main.google.login",
+    "main.google.authorized",
 })
 
 #: Endpoint -> permiso requerido. Debe cubrir TODAS las rutas de la aplicación;
@@ -150,6 +150,8 @@ ENDPOINT_PERMISSIONS: dict[str, str] = {
     "main.chat_message": "session:entry",
     "main.google_login": "session:entry",
     "main.google_authorized": "session:entry",
+    "main.google.login": "session:entry",
+    "main.google.authorized": "session:entry",
     "main.logout": "session:logout",
     "main.dashboard": "dashboard:view",
     "main.ai_predictive": "ai:predictive_view",

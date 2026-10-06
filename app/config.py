@@ -34,7 +34,10 @@ class Config:
     """Configuración base común a todos los entornos."""
 
     ENV = os.environ.get("FLASK_ENV", "development")
-    DEBUG = os.environ.get("FLASK_DEBUG") == "1"
+    DEBUG = (
+        os.environ.get("FLASK_ENV") != "production"
+        and os.environ.get("FLASK_DEBUG") == "1"
+    )
     HOST = os.environ.get("HOST", "127.0.0.1")
     PORT = int(os.environ.get("PORT", "3000"))
     SECRET_KEY = os.environ.get("SECRET_KEY", "").strip()

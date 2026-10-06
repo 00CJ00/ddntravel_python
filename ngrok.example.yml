@@ -1,5 +1,4 @@
-# Copia este archivo a "ngrok.yml" y pega tu authtoken real.
-# ¡NUNCA subas ngrok.yml con tu token a GitHub!
-version: 3
-agent:
-  authtoken: 3J1cBhInAnIMlZOwJHxuOgcKLz1_858rFsd9sYvs28EKcwK3H
+# Plantilla sin credenciales. Configura el token localmente con:
+# ngrok config add-authtoken <TU_TOKEN>
+# Luego inicia el túnel con `ngrok http 3000`.
+version: "3"

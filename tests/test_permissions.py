@@ -91,6 +91,29 @@ def test_todo_endpoint_con_permiso_usa_ese_mismo_permiso(app):
     assert not discrepancias, discrepancias
 
 
+def test_google_oauth_es_publico_y_redirige_al_proveedor(app):
+    """El login y el callback de Flask-Dance no deben exigir sesión local."""
+    import app.routes as rutas
+
+    if not rutas.google_bp_enabled:
+        pytest.skip("Google OAuth no está configurado en este entorno")
+
+    endpoints_publicos = {"main.google.login", "main.google.authorized"}
+    assert endpoints_publicos <= permissions.PUBLIC_ENDPOINTS
+    assert endpoints_publicos <= permissions.ENDPOINT_PERMISSIONS.keys()
+
+    with app.test_client() as cliente:
+        inicio = cliente.get("/login/google")
+        assert inicio.status_code == 302
+        assert inicio.location.endswith("/google")
+
+        autorizacion = cliente.get(inicio.location)
+        assert autorizacion.status_code == 302
+        assert autorizacion.location.startswith("https://")
+        assert "google.com" in autorizacion.location
+        assert autorizacion.location != "/login"
+
+
 def test_ninguna_ruta_heredada_usa_el_decorador_old():
     """``role_required`` se eliminó: la matriz es la única fuente de verdad."""
     import app.routes as rutas

@@ -200,15 +200,71 @@ La app muestra una pantalla de login. La contraseña de las 3 cuentas demo es `d
 
 ## Inicio de sesión con Google (OAuth)
 
-Opcional. Configurar en `.env`:
-1. Crear OAuth Client ID (tipo "Web app") en Google Cloud Console.
-2. URI de redirección autorizada: `http://localhost:3000/login/google/authorized`.
-3. Agregar `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` al `.env`.
-4. Reiniciar servidor (`python run.py`).
+Google OAuth es opcional; las credenciales se crean en Google Cloud Console y
+no se guardan en Git:
 
-Cuando un usuario entra por primera vez con Google, se registra automáticamente
-como **Cliente Viajero** (creando su perfil en el CRM). Sin credenciales, el
-botón simplemente no se muestra y todo funciona con login/contraseña.
+1. Crea un proyecto en Google Cloud Console y configura la pantalla de
+   consentimiento OAuth. Mientras la aplicación esté en modo de prueba, agrega
+   como usuarios de prueba las cuentas Google que necesiten iniciar sesión.
+2. Crea un OAuth Client ID de tipo **Aplicación web**.
+3. En **URIs de redireccionamiento autorizados**, agrega el callback local:
+   `http://localhost:3000/login/google/authorized`.
+4. Copia `.env.example` a `.env` y completa `GOOGLE_CLIENT_ID` y
+   `GOOGLE_CLIENT_SECRET` con los valores de Google. No publiques ni compartas
+   `.env`.
+5. Inicia la app con `python run.py` y abre
+   `http://localhost:3000/login/google`. Usa `localhost` también al navegar:
+   `127.0.0.1` es otro host para OAuth y no coincide con el callback registrado.
+
+### Inicio de sesión con Google mediante ngrok
+
+ngrok crea un túnel HTTPS desde una URL pública hacia el servidor local; no
+reemplaza Google OAuth ni arranca la aplicación. Para probar el inicio de sesión
+desde internet:
+
+1. Revoca en el panel de ngrok cualquier token que haya sido guardado o
+   publicado accidentalmente. `ngrok.example.yml` es solo una plantilla sin
+   credenciales. Configura el token nuevo en la CLI de ngrok, que lo guarda en
+   la configuración local del usuario:
+
+   ```powershell
+   ngrok config add-authtoken <TU_TOKEN_NUEVO>
+   ```
+
+   No pegues el token en este README, `.env`, `ngrok.example.yml` ni en Git.
+2. En la consola de Google Cloud, agrega a los **URIs de redireccionamiento
+   autorizados** la URL HTTPS que usarás, seguida exactamente por
+   `/login/google/authorized`; por ejemplo:
+   `https://<tu-dominio-ngrok>/login/google/authorized`. Google exige que el
+   dominio y la ruta coincidan con el callback. Si ngrok asigna una URL nueva,
+   actualiza este URI en Google antes de volver a probar.
+3. En `.env`, confirma que las credenciales Google pertenecen a ese mismo
+   cliente OAuth y habilita la cookie segura para el túnel:
+   `SESSION_COOKIE_SECURE=1`.
+4. En una primera terminal, desde la raíz del proyecto, inicia Flask. En la
+   segunda, inicia el túnel hacia el puerto 3000:
+
+   ```powershell
+   python run.py
+   ```
+
+   ```powershell
+   ngrok http 3000
+   ```
+
+   `run.py` escucha por defecto solo en `127.0.0.1:3000` y mantiene el modo
+   debug apagado. ngrok puede reenviar el túnel hacia ese servicio local; no
+   cambies el host a `0.0.0.0` ni habilites `FLASK_DEBUG=1` para publicarlo.
+5. Abre la URL HTTPS que muestra ngrok y prueba **Iniciar sesión con Google**.
+   Si Google muestra `redirect_uri_mismatch`, compara el callback registrado en
+   Google con la URL pública exacta y la ruta
+   `/login/google/authorized`. Si aparece `access_denied`, revisa el estado de
+   publicación de la pantalla OAuth y la lista de usuarios de prueba.
+
+Cuando alguien inicia sesión por primera vez, la app lo registra como
+**Cliente Viajero**. Para entrar desde otras cuentas mientras el consentimiento
+OAuth está en modo de prueba, esas cuentas deben estar agregadas como usuarios
+de prueba en Google Cloud Console.
 
 ## Editar información de la cuenta
 
