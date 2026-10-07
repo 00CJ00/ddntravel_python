@@ -8,8 +8,6 @@ la propiedad del registro (``owned_or_404``). La matriz de permisos es la
 from __future__ import annotations
 import os
 import re
-import datetime
-from datetime import date
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session, jsonify,
@@ -18,7 +16,6 @@ from flask import (
 from werkzeug.security import check_password_hash
 
 from .store import store
-from .models import Client, UserSession, new_id
 from . import ai_service
 from .extensions import limiter
 from .view import store_view
@@ -84,12 +81,8 @@ def redirect_back(default_endpoint: str):
 
 
 def find_payment(payment_id: str):
-    """Busca un pago por su identificador.
-
-    El repositorio definitivo (``store.get_payment``) llega en la fase P4,
-    junto con la secuencia de NCF y el PDF de factura reales.
-    """
-    return next((p for p in store.payments if p.id == payment_id), None)
+    """Busca un pago por su identificador a través del repositorio."""
+    return store.get_payment(payment_id)
 
 
 def not_implemented_yet(feature: str):
@@ -179,18 +172,25 @@ def login():
         password = f.get("password") or ""
         user = next((u for u in store.available_users if u.email.lower() == email), None)
         if user is not None and getattr(user, "password_hash", None) \
-                and getattr(user, "is_active", True) \
                 and check_password_hash(user.password_hash, password):
             session["user_id"] = user.id
+            store.record_event("INICIO_SESION", "Autenticación", user=user,
+                               details=f"Inicio de sesión correcto de {user.email}.")
             flash(f"Bienvenido, {user.name.split(' (')[0]}.", "success")
             return redirect(url_for("main.index"))
         error = "Correo o contraseña incorrectos."
+        store.record_event("INICIO_SESION_FALLIDO", "Autenticación", user_name=email or "(vacío)",
+                           details=f"Intento de inicio de sesión fallido para {email or '(vacío)'}.")
     return render_template("login.html", error=error, google_enabled=google_bp_enabled)
 
 
 @bp.route("/logout", methods=["POST"])
 @permission_required("session:logout")
 def logout():
+    user = get_current_user()
+    if user is not None:
+        store.record_event("CIERRE_SESION", "Autenticación", user=user,
+                           details=f"Cierre de sesión de {user.email}.")
     session.clear()
     for key in ("google_token", "google_oauth_state"):
         session.pop(key, None)
@@ -264,19 +264,335 @@ def admin_add_destination():
     return jsonify({"success": True, "id": dest.id, "name": dest.name})
 
 
-@bp.route("/admin/destinations/<dest_id>", methods=["POST"])
+@bp.route("/admin/destinations/<int:dest_id>", methods=["POST"])
 @permission_required("catalog:edit")
 def admin_edit_destination(dest_id):
     data = request.form
-    # White list: solo permitir actualizar campos del catálogo, no 'id' ni otros protegidos
-    allowed = {"name", "country", "region", "cover_image", "description",
-               "weather_type", "best_season", "high_season_months",
-               "popular_attractions", "base_price_usd", "status", "rating"}
-    data = {k: v for k, v in data.items() if k in allowed}
     dest = store.edit_destination(get_current_user(), dest_id, **data)
     if dest:
         return jsonify({"success": True, "name": dest.name})
     return jsonify({"success": False, "error": "Destino no encontrado"}), 404
+
+
+# --- Catálogo: crear/editar/eliminar paquetes, hoteles, vuelos, transporte, actividades ---
+def _guard_active(result):
+    if result == "has_active_bookings":
+        return jsonify({"success": False,
+                        "error": "No se puede eliminar: tiene reservas activas."}), 409
+    if result == "not_found":
+        return jsonify({"success": False, "error": "Recurso no encontrado"}), 404
+    return jsonify({"success": True})
+
+
+@bp.route("/admin/packages/new", methods=["POST"])
+@permission_required("catalog:create")
+def admin_new_package():
+    f = request.form
+    store.add_package(
+        get_current_user(),
+        title=f.get("title", ""), destination_id=f.get("destination_id", ""),
+        destination_name=f.get("destination_name", ""), duration_days=int_field(f, "duration_days", 1),
+        duration_nights=int_field(f, "duration_nights", 1), price_usd=float_field(f, "price_usd", 0.0),
+        original_price_usd=float_field(f, "original_price_usd", 0.0), available_slots=int_field(f, "available_slots", 0),
+        total_slots=int_field(f, "total_slots", 0), max_capacity=int_field(f, "max_capacity", 0),
+        image=f.get("image", ""), image_url=f.get("image_url", ""),
+        gallery=f.get("gallery", ""), category=f.get("category", "Estándar"),
+        featured=bool(int_field(f, "featured", 0, minimum=0, maximum=1)),
+        inclusions=f.get("inclusions", ""), departure_dates=f.get("departure_dates", ""),
+    )
+    return redirect(url_for("main.packages"))
+
+
+@bp.route("/admin/packages/<int:pkg_id>", methods=["POST"])
+@permission_required("catalog:edit")
+def admin_edit_package(pkg_id):
+    updated = store.edit_package(get_current_user(), pkg_id, **dict(request.form))
+    if updated is None:
+        return jsonify({"success": False, "error": "Paquete no encontrado"}), 404
+    return jsonify({"success": True, "title": updated.title})
+
+
+@bp.route("/admin/packages/<int:pkg_id>/delete", methods=["POST"])
+@permission_required("catalog:delete")
+def admin_delete_package(pkg_id):
+    return _guard_active(store.delete_package(get_current_user(), pkg_id))
+
+
+@bp.route("/admin/hotels/new", methods=["POST"])
+@permission_required("catalog:create")
+def admin_new_hotel():
+    f = request.form
+    room_types = []
+    rt_count = int_field(f, "room_types_count", 1, minimum=1, maximum=20)
+    for i in range(rt_count):
+        room_types.append({
+            "type": f.get(f"room_type[{i}][type]", ""),
+            "price_per_night": float_field(f, f"room_type[{i}][price_per_night]", 0.0),
+            "available": int_field(f, f"room_type[{i}][available]", 0, minimum=0),
+        })
+    store.add_hotel(
+        get_current_user(),
+        name=f.get("name", ""), destination_id=f.get("destination_id", ""),
+        destination_name=f.get("destination_name", ""), stars=int_field(f, "stars", 5, minimum=1, maximum=5),
+        address=f.get("address", ""), rating=float_field(f, "rating", 0.0),
+        image=f.get("image", ""), contact_phone=f.get("contact_phone", ""),
+        amenities=f.get("amenities", ""), room_types=room_types,
+    )
+    return redirect(url_for("main.hotels"))
+
+
+@bp.route("/admin/hotels/<int:hotel_id>", methods=["POST"])
+@permission_required("catalog:edit")
+def admin_edit_hotel(hotel_id):
+    f = request.form
+    hotel = store.get_hotel(hotel_id)
+    if hotel is None:
+        return jsonify({"success": False, "error": "Hotel no encontrado"}), 404
+    rt_count = int_field(f, "room_types_count", len(hotel.room_types or []), minimum=1, maximum=20)
+    room_types = []
+    for i in range(rt_count):
+        old = hotel.room_types[i] if hotel.room_types and i < len(hotel.room_types) else None
+        room_types.append({
+            "type": f.get(f"room_type[{i}][type]", old.type if old else ""),
+            "price_per_night": float_field(f, f"room_type[{i}][price_per_night]",
+                                           old.price_per_night if old else 0.0),
+            "available": int_field(f, f"room_type[{i}][available]",
+                                   old.rooms_total if old else 0, minimum=0),
+        })
+    updated = store.edit_hotel(get_current_user(), hotel_id, room_types=room_types,
+                               **{k: v for k, v in f.items() if k in
+                                  {"name", "destination_id", "destination_name", "stars", "address",
+                                   "rating", "image", "contact_phone", "amenities"}})
+    return jsonify({"success": True, "name": updated.name if updated else hotel.name})
+
+
+@bp.route("/admin/hotels/<int:hotel_id>/delete", methods=["POST"])
+@permission_required("catalog:delete")
+def admin_delete_hotel(hotel_id):
+    return _guard_active(store.delete_hotel_guarded(get_current_user(), hotel_id))
+
+
+@bp.route("/admin/flights/new", methods=["POST"])
+@permission_required("catalog:create")
+def admin_new_flight():
+    f = request.form
+    store.add_flight(
+        get_current_user(),
+        airline=f.get("airline", ""), flight_number=f.get("flight_number", ""),
+        origin=f.get("origin", ""), destination=f.get("destination", ""),
+        departure_time=f.get("departure_time", ""), arrival_time=f.get("arrival_time", ""),
+        price_usd=float_field(f, "price_usd", 0.0), seats_available=int_field(f, "seats_available", 0, minimum=0),
+        total_seats=int_field(f, "total_seats", 0, minimum=1), flight_class=f.get("flight_class", "Económica"),
+        status=f.get("status", "A tiempo"), baggage_allowance=f.get("baggage_allowance", ""),
+        image=f.get("image", ""),
+    )
+    return redirect(url_for("main.flights"))
+
+
+@bp.route("/admin/flights/<int:flight_id>", methods=["POST"])
+@permission_required("catalog:edit")
+def admin_edit_flight(flight_id):
+    allowed = {"airline", "flight_number", "origin", "destination", "departure_time", "arrival_time",
+               "price_usd", "seats_available", "total_seats", "flight_class", "status", "baggage_allowance", "image"}
+    updated = store.edit_flight(get_current_user(), flight_id,
+                                **{k: v for k, v in request.form.items() if k in allowed})
+    if updated is None:
+        return jsonify({"success": False, "error": "Vuelo no encontrado"}), 404
+    return jsonify({"success": True, "airline": updated.airline, "flight_number": updated.flight_number})
+
+
+@bp.route("/admin/flights/<int:flight_id>/delete", methods=["POST"])
+@permission_required("catalog:delete")
+def admin_delete_flight(flight_id):
+    return _guard_active(store.delete_flight_guarded(get_current_user(), flight_id))
+
+
+@bp.route("/admin/transports/new", methods=["POST"])
+@permission_required("catalog:create")
+def admin_new_transport():
+    f = request.form
+    store.add_transport(
+        get_current_user(),
+        type=f.get("type", ""), route=f.get("route", ""), vehicle_model=f.get("vehicle_model", ""),
+        capacity=int_field(f, "capacity", 0, minimum=0), available_seats=int_field(f, "available_seats", 0, minimum=0),
+        driver_name=f.get("driver_name", ""), price_usd=float_field(f, "price_usd", 0.0),
+        status=f.get("status", "Operativo"), amenities=f.get("amenities", ""), image=f.get("image", ""),
+    )
+    return redirect(url_for("main.transports"))
+
+
+@bp.route("/admin/transports/<int:transport_id>", methods=["POST"])
+@permission_required("catalog:edit")
+def admin_edit_transport(transport_id):
+    allowed = {"type", "route", "vehicle_model", "capacity", "available_seats", "driver_name",
+               "price_usd", "status", "amenities", "image"}
+    updated = store.edit_transport(get_current_user(), transport_id,
+                                   **{k: v for k, v in request.form.items() if k in allowed})
+    if updated is None:
+        return jsonify({"success": False, "error": "Transporte no encontrado"}), 404
+    return jsonify({"success": True, "type": updated.type})
+
+
+@bp.route("/admin/transports/<int:transport_id>/delete", methods=["POST"])
+@permission_required("catalog:delete")
+def admin_delete_transport(transport_id):
+    return _guard_active(store.delete_transport_guarded(get_current_user(), transport_id))
+
+
+@bp.route("/admin/activities/new", methods=["POST"])
+@permission_required("catalog:create")
+def admin_new_activity():
+    f = request.form
+    store.add_activity(
+        get_current_user(),
+        title=f.get("title", ""), destination_id=f.get("destination_id", ""),
+        destination_name=f.get("destination_name", ""), duration_hours=int_field(f, "duration_hours", 1),
+        price_usd=float_field(f, "price_usd", 0.0), includes_guide=bool(int_field(f, "includes_guide", 0, minimum=0, maximum=1)),
+        difficulty=f.get("difficulty", "Fácil"), image=f.get("image", ""),
+        description=f.get("description", ""), category=f.get("category", "Turismo"),
+        schedule=f.get("schedule", ""),
+    )
+    return redirect(url_for("main.activities"))
+
+
+@bp.route("/admin/activities/<int:activity_id>", methods=["POST"])
+@permission_required("catalog:edit")
+def admin_edit_activity(activity_id):
+    allowed = {"title", "destination_id", "destination_name", "duration_hours", "price_usd",
+               "includes_guide", "difficulty", "image", "description", "category", "schedule"}
+    updated = store.edit_activity(get_current_user(), activity_id,
+                                  **{k: v for k, v in request.form.items() if k in allowed})
+    if updated is None:
+        return jsonify({"success": False, "error": "Actividad no encontrada"}), 404
+    return jsonify({"success": True, "title": updated.title})
+
+
+@bp.route("/admin/activities/<int:activity_id>/delete", methods=["POST"])
+@permission_required("catalog:delete")
+def admin_delete_activity(activity_id):
+    activity = catalog_get_activity(activity_id)
+    if activity is None:
+        return jsonify({"success": False, "error": "Actividad no encontrada"}), 404
+    ok = store.delete_activity(get_current_user(), activity_id)
+    if not ok:
+        return jsonify({"success": False, "error": "Actividad no encontrada"}), 404
+    return jsonify({"success": True})
+
+
+def catalog_get_activity(activity_id):
+    from .repositories import catalog as _c
+    return _c.get_activity(activity_id)
+
+
+# --- Clientes: edición y eliminación (admin/employee editan; solo admin elimina) ---
+@bp.route("/admin/clients/<int:client_id>/edit", methods=["POST"])
+@permission_required("clients:edit")
+def admin_edit_client(client_id):
+    f = request.form
+    client = store.get_client(client_id)
+    if not client:
+        return jsonify({"success": False, "error": "Cliente no encontrado"}), 404
+    allowed = {"name", "email", "phone", "document_id", "nationality", "category",
+               "budget_preference", "passport_expiry", "notes", "status"}
+    from . import validators
+    errors = []
+    changes = {k: v for k, v in f.items() if k in allowed}
+    if "email" in changes:
+        if not validators.validate_email(changes["email"]):
+            errors.append("Email inválido.")
+        errors += validators.validate_email_unique(changes["email"], client_id, store.clients)
+    if changes.get("document_id"):
+        errors += validators.validate_document_unique(changes["document_id"], client_id, store.clients)
+    if errors:
+        return jsonify({"success": False, "errors": errors}), 422
+    store.update_client(get_current_user(), client_id, **changes)
+    return jsonify({"success": True, "name": client.name})
+
+
+@bp.route("/admin/clients/<int:client_id>/delete", methods=["POST"])
+@permission_required("clients:delete")
+def admin_delete_client(client_id):
+    result = store.delete_client(get_current_user(), client_id)
+    if not result:
+        return jsonify({"success": False, "error": "Cliente no encontrado"}), 404
+    return jsonify({"success": True})
+
+
+# --- Usuarios (RF-01): solo admin ---
+@bp.route("/admin/users")
+@permission_required("users:manage")
+def admin_users():
+    return render_template("admin_users.html", active_tab="users", users=store.available_users,
+                           clients=store.clients)
+
+
+@bp.route("/admin/users/new", methods=["POST"])
+@permission_required("users:manage")
+def admin_new_user():
+    f = request.form
+    result = store.create_user(get_current_user(), name=f.get("name", ""),
+                               email=f.get("email", ""), password=f.get("password", ""),
+                               role=f.get("role", "client"), department=f.get("department", ""),
+                               client_id=f.get("client_id") or None)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("main.admin_users"))
+
+
+@bp.route("/admin/users/<int:user_id>/edit", methods=["POST"])
+@permission_required("users:manage")
+def admin_edit_user(user_id):
+    changes = {k: v for k, v in request.form.items()
+               if k in {"name", "email", "role", "department", "client_id"} and v}
+    result = store.update_user(get_current_user(), user_id, **changes)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("main.admin_users"))
+
+
+@bp.route("/admin/users/<int:user_id>/password", methods=["POST"])
+@permission_required("users:manage")
+def admin_reset_password(user_id):
+    result = store.reset_user_password(get_current_user(), user_id, request.form.get("password", ""))
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("main.admin_users"))
+
+
+@bp.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+@permission_required("users:manage")
+def admin_delete_user(user_id):
+    result = store.deactivate_user(get_current_user(), user_id)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("main.admin_users"))
+
+
+# --- Reserva: edición (fechas, viajeros, notas; recalcula total e inventario) ---
+@bp.route("/bookings/<int:booking_id>/edit", methods=["POST"])
+@permission_required("bookings:edit")
+def edit_booking(booking_id):
+    user = get_current_user()
+    booking = store.get_booking(booking_id)
+    if booking is None:
+        return jsonify({"success": False, "message": "Reserva no encontrada."}), 404
+    f = request.form
+    changes = {}
+    for key in ("departure_date", "return_date", "notes", "check_in", "check_out"):
+        if f.get(key):
+            changes[key] = f.get(key)
+    if f.get("travelers"):
+        changes["travelers"] = int_field(f, "travelers", booking.travelers, minimum=1, maximum=50)
+    if f.get("rooms_count"):
+        changes["rooms_count"] = int_field(f, "rooms_count", booking.rooms_count or 1, minimum=1, maximum=20)
+    result = store.update_booking(user, booking_id, **changes)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect_back("main.bookings")
+
+
+# --- Pago verificado (spec P3) ---
+@bp.route("/payments/<int:payment_id>/verify", methods=["POST"])
+@permission_required("payments:create")
+def verify_payment(payment_id):
+    result = store.verify_payment(get_current_user(), payment_id)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect_back("main.payments")
 
 
 @bp.route("/hotels")
@@ -443,7 +759,7 @@ def reset_data():
     return redirect(url_for("main.login"))
 
 
-@bp.route("/notifications/<notif_id>/read", methods=["POST"])
+@bp.route("/notifications/<int:notif_id>/read", methods=["POST"])
 @permission_required("notifications:read")
 def read_notification(notif_id):
     store.mark_notification_as_read(notif_id)
@@ -464,6 +780,7 @@ def read_all_notifications():
 @permission_required("clients:create")
 def new_client():
     f = request.form
+    destinations_list = [d.strip() for d in f.get("preferred_destinations", "").split(",") if d.strip()]
     from . import validators
     errors = []
     if not validators.validate_email(f.get("email", "")):
@@ -475,7 +792,6 @@ def new_client():
         for e in errors:
             flash(e, "error")
         return redirect(url_for("main.clients"))
-    destinations_list = [d.strip() for d in f.get("preferred_destinations", "").split(",") if d.strip()]
     store.add_client(
         get_current_user(), name=f.get("name", ""), email=f.get("email", ""), phone=f.get("phone", ""),
         document_id=f.get("document_id", ""), nationality=f.get("nationality", "República Dominicana"),
@@ -514,36 +830,19 @@ def new_booking():
                                 error="Regla de Negocio (RN-02): Debe seleccionar o registrar un cliente para "
                                       "asociar a la reserva.")
 
-    rooms_count = int_field(f, "rooms_count", 1, minimum=1, maximum=20)
-    nights = 1
-    try:
-        dep = datetime.datetime.fromisoformat(str(f.get("departure_date", ""))[:10]).date()
-        ret = datetime.datetime.fromisoformat(str(f.get("return_date", ""))[:10]).date()
-        nights = max(1, (ret - dep).days)
-    except (ValueError, TypeError):
-        nights = 1
-    if package:
-        base_price = package.price_usd * travelers
-    elif hotel and getattr(hotel, "room_types", None):
-        base_price = hotel.room_types[0]["price_per_night"] * nights * rooms_count
-    else:
-        base_price = 300 * travelers
+    base_price = package.price_usd if package else (
+        (hotel.room_types[0].price_per_night if hotel and getattr(hotel, "room_types", None) else 300))
     flight_addon = (flight.price_usd * travelers) if flight else 0
-    raw_total = base_price + flight_addon
+    raw_total = (base_price * travelers) + flight_addon
 
     promo_code = f.get("promo_code", "").strip()
     discounted_total = raw_total
     promo_note = ""
     if promo_code:
-        promo_result = store.apply_promo_code(promo_code, raw_total, client.category)
+        promo_result = store.apply_promo_code(promo_code, raw_total)
         if promo_result["valid"]:
             discounted_total = promo_result["final_price"]
             promo_note = f" [Cupón: {promo_code.upper()} - {promo_result['discount_percentage']}%]"
-        else:
-            flash(promo_result["message"], "error")
-            return render_template("bookings.html", active_tab="bookings",
-                                   bookings=own_records(current_user, store.bookings),
-                                   error=promo_result["message"])
 
     names = request.form.getlist("passenger_name[]")
     docs = request.form.getlist("passenger_document[]")
@@ -571,11 +870,6 @@ def new_booking():
         notes=(f.get("notes", "") + promo_note).strip(),
         initial_payment=float_field(f, "initial_payment"),
         payment_method=f.get("payment_method", "Tarjeta de Crédito"),
-        transport_id=f.get("transport_id") or None,
-        check_in=f.get("check_in") or f.get("departure_date", ""),
-        check_out=f.get("check_out") or f.get("return_date", ""),
-        rooms_count=int_field(f, "rooms_count", 1, minimum=1, maximum=20),
-        promo_code=promo_code,
     )
 
     if not result["success"]:
@@ -589,31 +883,7 @@ def new_booking():
     return redirect(url_for("main.bookings"))
 
 
-@bp.route("/bookings/<booking_id>/edit", methods=["POST"])
-@permission_required("bookings:edit")
-def edit_booking(booking_id):
-    """Edita fechas, viajeros, notas (recalcula total y revalida inventario)."""
-    user = get_current_user()
-    booking = store.get_booking(booking_id)
-    if booking is None:
-        return jsonify({"success": False, "message": "Reserva no encontrada."}), 404
-    f = request.form
-    changes = {}
-    for key in ("departure_date", "return_date", "notes", "check_in", "check_out"):
-        if f.get(key):
-            changes[key] = f.get(key)
-    if f.get("travelers"):
-        changes["travelers"] = int_field(f, "travelers", booking.travelers, minimum=1, maximum=50)
-    if f.get("rooms_count"):
-        changes["rooms_count"] = int_field(f, "rooms_count", getattr(booking, "rooms_count", 1), minimum=1, maximum=20)
-    result = store.update_booking(user, booking_id, **changes)
-    if request.path.startswith("/api/") or request.accept_mimetypes.best == "application/json":
-        return jsonify(result)
-    flash(result["message"], "success" if result["success"] else "error")
-    return redirect_back("main.bookings")
-
-
-@bp.route("/bookings/<booking_id>/cancel", methods=["POST"])
+@bp.route("/bookings/<int:booking_id>/cancel", methods=["POST"])
 @permission_required("bookings:cancel")
 def cancel_booking(booking_id):
     """Cancela una reserva verificando propiedad y estado (IDOR)."""
@@ -627,17 +897,15 @@ def cancel_booking(booking_id):
     return redirect_back(default)
 
 
-@bp.route("/bookings/<booking_id>/status", methods=["POST"])
+@bp.route("/bookings/<int:booking_id>/status", methods=["POST"])
 @permission_required("bookings:status")
 def update_booking_status(booking_id):
-    """Cambia el estado de una reserva pasando por BookingService.transition (RN-03)."""
+    """Cambia el estado de una reserva (solo personal interno; RN-03 en P3)."""
     user = get_current_user()
     owned_or_404(user, store.get_booking(booking_id))
-    nuevo_estado = request.form.get("status", "Pendiente")
-    result = store.update_booking_status(user, booking_id, nuevo_estado)
-    if not result["success"]:
+    result = store.update_booking_status(user, booking_id, request.form.get("status", "Pendiente"))
+    if not result.get("success"):
         flash(result["message"], "error")
-        # RN-03: transición rechazada → 422 (nada cambió en la reserva).
         return render_template("bookings.html", active_tab="bookings",
                                bookings=own_records(user, store.bookings),
                                error=result["message"]), 422
@@ -668,409 +936,29 @@ def new_payment():
     return redirect(url_for("main.payments"))
 
 
-@bp.route("/payments/<payment_id>/verify", methods=["POST"])
-@permission_required("payments:create")
-def verify_payment(payment_id):
-    """Verifica un pago Pendiente_verificacion (Transferencia/Efectivo). Admin/employee."""
-    result = store.verify_payment(get_current_user(), payment_id)
-    flash(result["message"], "success" if result["success"] else "error")
-    return redirect_back("main.payments")
-
-
 # ----------------------------------------------------------------------
-# Paquetes (RF-05)
+# Promociones (RF-12)
 # ----------------------------------------------------------------------
-@bp.route("/admin/packages/new", methods=["POST"])
-@permission_required("catalog:create")
-def admin_new_package():
-    f = request.form
-    store.add_package(
-        get_current_user(),
-        title=f.get("title", ""), destination_id=f.get("destination_id", ""),
-        destination_name=f.get("destination_name", ""), duration_days=int_field(f, "duration_days", 1),
-        duration_nights=int_field(f, "duration_nights", 1), price_usd=float_field(f, "price_usd", 0.0),
-        original_price_usd=float_field(f, "original_price_usd", 0.0), available_slots=int_field(f, "available_slots", 0),
-        total_slots=int_field(f, "total_slots", 0), max_capacity=int_field(f, "max_capacity", 0),
-        image=f.get("image", ""), image_url=f.get("image_url", ""),
-        gallery=f.get("gallery", ""), category=f.get("category", "Estándar"),
-        featured=bool(int_field(f, "featured", 0, minimum=0, maximum=1)),
-        inclusions=f.get("inclusions", ""), departure_dates=f.get("departure_dates", ""),
-    )
-    return redirect(url_for("main.packages"))
-
-
-@bp.route("/admin/packages/<pkg_id>", methods=["POST"])
-@permission_required("catalog:edit")
-def admin_edit_package(pkg_id):
-    f = request.form
-    pkg = store.get_package(pkg_id)
-    if not pkg:
-        return jsonify({"success": False, "error": "Paquete no encontrado"}), 404
-    updated = store.edit_package(get_current_user(), pkg_id, **dict(f))
-    if updated is None:
-        return jsonify({"success": False, "error": "Paquete no encontrado"}), 404
-    return jsonify({"success": True, "title": updated.title})
-
-
-@bp.route("/admin/packages/<pkg_id>/delete", methods=["POST"])
-@permission_required("catalog:delete")
-def admin_delete_package(pkg_id):
-    pkg = store.get_package(pkg_id)
-    if not pkg:
-        return jsonify({"success": False, "error": "Paquete no encontrado"}), 404
-    # Soft delete: verificar si hay reservas activas
-    has_active_bookings = any(
-        b.package_id == pkg_id and b.status != "Cancelada" for b in store.bookings
-    )
-    if has_active_bookings:
-        return jsonify({"success": False, "error": "No se puede eliminar el paquete: tiene reservas activas."}), 409
-    # Marcar como inactivo
-    pkg.is_active = False
-    pkg.deleted_at = datetime.datetime.now().isoformat()
-    store.log_action(get_current_user().id, get_current_user().name, "ELIMINAR_PAQUETE", "Paquetes",
-                      f"Desactivado paquete ID: {pkg_id}")
-    return jsonify({"success": True, "title": pkg.title})
-
-
-# ----------------------------------------------------------------------
-# Hoteles y RoomTypes
-# ----------------------------------------------------------------------
-@bp.route("/admin/hotels/new", methods=["POST"])
-@permission_required("catalog:create")
-def admin_new_hotel():
-    f = request.form
-    # Los room_types vienen como lista de dicts desde el formulario
-    room_types_data = []
-    # Formato esperado: room_types[0][type], room_types[0][price_per_night], room_types[0][available], etc.
-    # El frontend puede enviar room_types como JSON o campos planos
-    rt_count = int_field(f, "room_types_count", 1, minimum=1, maximum=20)
-    for i in range(rt_count):
-        rt = {
-            "type": f.get(f"room_type[{i}][type]", ""),
-            "price_per_night": float_field(f, f"room_type[{i}][price_per_night]", 0.0),
-            "available": int_field(f, f"room_type[{i}][available]", 0, minimum=0),
-        }
-        room_types_data.append(rt)
-    store.add_hotel(
-        get_current_user(),
-        name=f.get("name", ""), destination_id=f.get("destination_id", ""),
-        destination_name=f.get("destination_name", ""), stars=int_field(f, "stars", 5, minimum=1, maximum=5),
-        address=f.get("address", ""), rating=float_field(f, "rating", 0.0, minimum=0, maximum=5),
-        image=f.get("image", ""), contact_phone=f.get("contact_phone", ""),
-        amenities=f.get("amenities", ""), room_types=room_types_data,
-    )
-    return redirect(url_for("main.hotels"))
-
-
-@bp.route("/admin/hotels/<hotel_id>", methods=["POST"])
-@permission_required("catalog:edit")
-def admin_edit_hotel(hotel_id):
-    f = request.form
-    hotel = store.get_hotel(hotel_id)
-    if not hotel:
-        return jsonify({"success": False, "error": "Hotel no encontrado"}), 404
-    rt_count = int_field(f, "room_types_count", len(hotel.room_types or []), minimum=1, maximum=20)
-    new_room_types = []
-    for i in range(rt_count):
-        old = hotel.room_types[i] if hotel.room_types and i < len(hotel.room_types) else {}
-        new_room_types.append({
-            "type": f.get(f"room_type[{i}][type]", old.get("type", "")),
-            "price_per_night": float_field(f, f"room_type[{i}][price_per_night]", old.get("price_per_night", 0.0)),
-            "available": int_field(f, f"room_type[{i}][available]", old.get("available", 0), minimum=0),
-        })
-    updated = store.edit_hotel(get_current_user(), hotel_id, room_types=new_room_types,
-                               **{k: v for k, v in f.items() if k in
-                                  {"name", "destination_id", "destination_name", "stars", "address",
-                                   "rating", "image", "contact_phone", "amenities"}})
-    return jsonify({"success": True, "name": updated.name if updated else hotel.name})
-
-
-@bp.route("/admin/hotels/<hotel_id>/delete", methods=["POST"])
-@permission_required("catalog:delete")
-def admin_delete_hotel(hotel_id):
-    hotel = store.get_hotel(hotel_id)
-    if not hotel:
-        return jsonify({"success": False, "error": "Hotel no encontrado"}), 404
-    # Soft delete: verificar si hay reservas activas que lo referencien
-    has_active_bookings = any(
-        b.hotel_id == hotel_id and b.status != "Cancelada" for b in store.bookings
-    )
-    if has_active_bookings:
-        return jsonify({"success": False, "error": "No se puede desactivar el hotel: tiene reservas activas."}), 409
-    # Soft delete
-    hotel.is_active = False
-    hotel.deleted_at = datetime.datetime.now().isoformat()
-    store.log_action(get_current_user().id, get_current_user().name, "ELIMINAR_HOTEL", "Hoteles",
-                      f"Desactivado hotel ID: {hotel_id}")
-    return jsonify({"success": True, "name": hotel.name})
-
-
-# ----------------------------------------------------------------------
-# Vuelos
-# ----------------------------------------------------------------------
-@bp.route("/admin/flights/new", methods=["POST"])
-@permission_required("catalog:create")
-def admin_new_flight():
-    f = request.form
-    store.add_flight(
-        get_current_user(),
-        airline=f.get("airline", ""), flight_number=f.get("flight_number", ""),
-        origin=f.get("origin", ""), destination=f.get("destination", ""),
-        departure_time=f.get("departure_time", ""), arrival_time=f.get("arrival_time", ""),
-        price_usd=float_field(f, "price_usd", 0.0), seats_available=int_field(f, "seats_available", 0,
-                                                                         minimum=0),
-        total_seats=int_field(f, "total_seats", 0, minimum=1), flight_class=f.get("flight_class", "Económica"),
-        status=f.get("status", "A tiempo"), baggage_allowance=f.get("baggage_allowance", ""),
-        image=f.get("image", ""),
-    )
-    return redirect(url_for("main.flights"))
-
-
-@bp.route("/admin/flights/<flight_id>", methods=["POST"])
-@permission_required("catalog:edit")
-def admin_edit_flight(flight_id):
-    f = request.form
-    flight = store.get_flight(flight_id)
-    if not flight:
-        return jsonify({"success": False, "error": "Vuelo no encontrado"}), 404
-    allowed = {"airline", "flight_number", "origin", "destination", "departure_time", "arrival_time",
-               "price_usd", "seats_available", "total_seats", "flight_class", "status", "baggage_allowance", "image"}
-    updated = store.edit_flight(get_current_user(), flight_id,
-                                **{k: v for k, v in f.items() if k in allowed})
-    return jsonify({"success": True, "airline": updated.airline, "flight_number": updated.flight_number})
-
-
-@bp.route("/admin/flights/<flight_id>/delete", methods=["POST"])
-@permission_required("catalog:delete")
-def admin_delete_flight(flight_id):
-    flight = store.get_flight(flight_id)
-    if not flight:
-        return jsonify({"success": False, "error": "Vuelo no encontrado"}), 404
-    # Soft delete: verificar si hay reservas activas
-    has_active_bookings = any(
-        b.flight_id == flight_id and b.status != "Cancelada" for b in store.bookings
-    )
-    if has_active_bookings:
-        return jsonify({"success": False, "error": "No se puede desactivar el vuelo: tiene reservas activas."}), 409
-    # Soft delete
-    flight.is_active = False
-    flight.deleted_at = datetime.datetime.now().isoformat()
-    store.log_action(get_current_user().id, get_current_user().name, "ELIMINAR_VUELO", "Vuelos",
-                      f"Desactivado vuelo ID: {flight_id}")
-    return jsonify({"success": True, "airline": flight.airline, "flight_number": flight.flight_number})
-
-
-# ----------------------------------------------------------------------
-# Transportes
-# ----------------------------------------------------------------------
-@bp.route("/admin/transports/new", methods=["POST"])
-@permission_required("catalog:create")
-def admin_new_transport():
-    f = request.form
-    store.add_transport(
-        get_current_user(),
-        type=f.get("type", ""), route=f.get("route", ""), vehicle_model=f.get("vehicle_model", ""),
-        capacity=int_field(f, "capacity", 0, minimum=0), available_seats=int_field(f, "available_seats", 0,
-                                                                             minimum=0),
-        driver_name=f.get("driver_name", ""), price_usd=float_field(f, "price_usd", 0.0),
-        status=f.get("status", "Operativo"), amenities=f.get("amenities", ""), image=f.get("image", ""),
-    )
-    return redirect(url_for("main.transports"))
-
-
-@bp.route("/admin/transports/<transport_id>", methods=["POST"])
-@permission_required("catalog:edit")
-def admin_edit_transport(transport_id):
-    f = request.form
-    transport = store.get_transport(transport_id)
-    if not transport:
-        return jsonify({"success": False, "error": "Transporte no encontrado"}), 404
-    allowed = {"type", "route", "vehicle_model", "capacity", "available_seats", "driver_name",
-               "price_usd", "status", "amenities", "image"}
-    updated = store.edit_transport(get_current_user(), transport_id,
-                                   **{k: v for k, v in f.items() if k in allowed})
-    return jsonify({"success": True, "type": updated.type})
-
-
-@bp.route("/admin/transports/<transport_id>/delete", methods=["POST"])
-@permission_required("catalog:delete")
-def admin_delete_transport(transport_id):
-    transport = store.get_transport(transport_id)
-    if not transport:
-        return jsonify({"success": False, "error": "Transporte no encontrado"}), 404
-    # Soft delete: verificar si hay reservas activas
-    has_active_bookings = any(
-        b.transport_id == transport_id and b.status != "Cancelada" for b in store.bookings
-    )
-    if has_active_bookings:
-        return jsonify({"success": False, "error": "No se puede desactivar el transporte: tiene reservas activas."}), 409
-    # Soft delete
-    transport.is_active = False
-    transport.deleted_at = datetime.datetime.now().isoformat()
-    store.log_action(get_current_user().id, get_current_user().name, "ELIMINAR_TRANSPORTE", "Transporte",
-                      f"Desactivado transporte ID: {transport_id}")
-    return jsonify({"success": True, "type": transport.type})
-
-
-# ----------------------------------------------------------------------
-# Actividades
-# ----------------------------------------------------------------------
-@bp.route("/admin/activities/new", methods=["POST"])
-@permission_required("catalog:create")
-def admin_new_activity():
-    f = request.form
-    store.add_activity(
-        get_current_user(),
-        title=f.get("title", ""), destination_id=f.get("destination_id", ""),
-        destination_name=f.get("destination_name", ""), duration_hours=int_field(f, "duration_hours", 1),
-        price_usd=float_field(f, "price_usd", 0.0), includes_guide=bool(int_field(f, "includes_guide", 0,
-                                                                                  minimum=0, maximum=1)),
-        difficulty=f.get("difficulty", "Fácil"), image=f.get("image", ""),
-        description=f.get("description", ""), category=f.get("category", "Turismo"),
-        schedule=f.get("schedule", ""),
-    )
-    return redirect(url_for("main.activities"))
-
-
-@bp.route("/admin/activities/<activity_id>", methods=["POST"])
-@permission_required("catalog:edit")
-def admin_edit_activity(activity_id):
-    f = request.form
-    activity = next((a for a in store.activities if a.id == activity_id), None)
-    if not activity:
-        return jsonify({"success": False, "error": "Actividad no encontrada"}), 404
-    allowed = {"title", "destination_id", "destination_name", "duration_hours", "price_usd",
-               "includes_guide", "difficulty", "image", "description", "category", "schedule"}
-    updated = store.edit_activity(get_current_user(), activity_id,
-                                  **{k: v for k, v in f.items() if k in allowed})
-    if updated is None:
-        return jsonify({"success": False, "error": "Actividad no encontrada"}), 404
-    return jsonify({"success": True, "title": updated.title})
-
-
-@bp.route("/admin/activities/<activity_id>/delete", methods=["POST"])
-@permission_required("catalog:delete")
-def admin_delete_activity(activity_id):
-    if store.delete_activity(get_current_user(), activity_id):
-        return jsonify({"success": True})
-    return jsonify({"success": False, "error": "Actividad no encontrada o no autorizado"}), 404
-
-
-# ----------------------------------------------------------------------
-# Clientes (edit y delete con soft delete)
-# ----------------------------------------------------------------------
-@bp.route("/admin/clients/<client_id>/edit", methods=["POST"])
-@permission_required("clients:edit")
-def admin_edit_client(client_id):
-    f = request.form
-    client = store.get_client(client_id)
-    if not client:
-        return jsonify({"success": False, "error": "Cliente no encontrado"}), 404
-    # Campos permitidos para edición de perfil admin
-    allowed = {"name", "email", "phone", "document_id", "nationality", "category",
-               "budget_preference", "passport_expiry", "notes", "status"}
-    changes = {k: v for k, v in f.items() if k in allowed}
-    # Validación: email válido y único (RN de clientes), precios/documento únicos si cambian.
-    from . import validators
-    errors = []
-    if "email" in changes:
-        if not validators.validate_email(changes["email"]):
-            errors.append("Email inválido.")
-        errors += validators.validate_email_unique(changes["email"], client_id, store.clients)
-    if "document_id" in changes and changes["document_id"]:
-        errors += validators.validate_document_unique(changes["document_id"], client_id, store.clients)
-    if errors:
-        return jsonify({"success": False, "errors": errors}), 422
-    store.update_client(get_current_user(), client_id, **changes)
-    store.log_action(get_current_user().id, get_current_user().name, "EDITAR_CLIENTE", "Clientes",
-                      f"Actualizado cliente ID: {client_id}")
-    return jsonify({"success": True, "name": client.name})
-
-
-@bp.route("/admin/clients/<client_id>/delete", methods=["POST"])
-@permission_required("clients:delete")
-def admin_delete_client(client_id):
-    result = store.delete_client(get_current_user(), client_id)
-    if not result:
-        return jsonify({"success": False, "error": "Cliente no encontrado"}), 404
-    return jsonify({"success": True})
-
-
-# ----------------------------------------------------------------------
-# Usuarios (RF-01): solo admin
-# ----------------------------------------------------------------------
-@bp.route("/admin/users")
-@permission_required("users:manage")
-def admin_users():
-    return render_template("admin_users.html", active_tab="users", users=store.available_users,
-                           clients=store.clients)
-
-
-@bp.route("/admin/users/new", methods=["POST"])
-@permission_required("users:manage")
-def admin_new_user():
-    f = request.form
-    data = dict(name=f.get("name", ""), email=f.get("email", ""),
-                role=f.get("role", "client"), department=f.get("department", ""),
-                avatar=f.get("avatar", ""), client_id=f.get("client_id") or None,
-                password=f.get("password", ""))
-    result = store.create_user(get_current_user(), **data)
-    if isinstance(result, dict):
-        flash(result["message"], "error")
-    else:
-        flash(f"Usuario {result.email} creado.", "success")
-    return redirect(url_for("main.admin_users"))
-
-
-@bp.route("/admin/users/<user_id>/edit", methods=["POST"])
-@permission_required("users:manage")
-def admin_edit_user(user_id):
-    f = request.form
-    changes = {k: f[k] for k in ("name", "email", "role", "department", "client_id") if f.get(k)}
-    result = store.update_user(get_current_user(), user_id, **changes)
-    if isinstance(result, dict):
-        flash(result["message"], "error")
-    elif result is None:
-        flash("Usuario no encontrado.", "error")
-    else:
-        flash("Usuario actualizado.", "success")
-    return redirect(url_for("main.admin_users"))
-
-
-@bp.route("/admin/users/<user_id>/password", methods=["POST"])
-@permission_required("users:manage")
-def admin_reset_password(user_id):
-    result = store.reset_user_password(get_current_user(), user_id, request.form.get("password", ""))
-    flash(result["message"], "success" if result["success"] else "error")
-    return redirect(url_for("main.admin_users"))
-
-
-@bp.route("/admin/users/<user_id>/delete", methods=["POST"])
-@permission_required("users:manage")
-def admin_delete_user(user_id):
-    result = store.deactivate_user(get_current_user(), user_id)
-    flash(result["message"], "success" if result["success"] else "error")
-    return redirect(url_for("main.admin_users"))
-
-
-@bp.route("/promotions/<promo_id>/toggle", methods=["POST"])
-@permission_required("promotions:toggle")
-def toggle_promotion(promo_id):
-    store.toggle_promotion_status(promo_id)
-    return redirect(url_for("main.promotions"))
-
-
 @bp.route("/promotions/new", methods=["POST"])
 @permission_required("promotions:create")
 def new_promotion():
     f = request.form
+    categories = [c.strip() for c in f.get("applicable_categories", "").split(",") if c.strip()]
     store.add_promotion(
-        get_current_user(), code=f.get("code", "").strip().upper(),
-        discount_percentage=float_field(f, "discount_percentage"),
-        max_uses=int_field(f, "max_uses", 0, minimum=0), active=True,
-        applicable_categories=[c.strip() for c in f.get("applicable_categories", "Todos").split(",") if c.strip()],
+        get_current_user(), code=f.get("code", "").upper(), title=f.get("title", ""),
+        description=f.get("description", ""),
+        discount_percentage=int_field(f, "discount_percentage", 10, minimum=0, maximum=100),
         valid_until=f.get("valid_until", ""),
+        max_uses=int_field(f, "max_uses", 50, minimum=1),
+        applicable_categories=categories or ["Todos"], active=True,
     )
+    return redirect(url_for("main.promotions"))
+
+
+@bp.route("/promotions/<int:promo_id>/toggle", methods=["POST"])
+@permission_required("promotions:toggle")
+def toggle_promotion(promo_id):
+    store.toggle_promotion_status(get_current_user(), promo_id)
     return redirect(url_for("main.promotions"))
 
 
@@ -1107,7 +995,7 @@ def new_document():
     return redirect(url_for("main.documents"))
 
 
-@bp.route("/documents/<doc_id>/delete", methods=["POST"])
+@bp.route("/documents/<int:doc_id>/delete", methods=["POST"])
 @permission_required("documents:delete")
 def delete_document(doc_id):
     """Elimina un documento. Solo administradores (RN-04).
@@ -1129,13 +1017,7 @@ def api_predictive_analytics():
     data = request.get_json(force=True, silent=True) or {}
     timeframe = data.get("selectedTimeframe", "Próximos 6 meses")
     result = ai_service.get_predictive_analytics(store.clients, store.bookings, store.packages, timeframe)
-    store.predictive_data = result
-    store.persist()
-    store.log_action(get_current_user().id, get_current_user().name, "EJECUCIÓN_PREDICCIÓN_IA",
-                      "Motor IA Predictivo", f"Análisis de comportamiento de compra generado para periodo: {timeframe}")
-    store.add_notification("Estadísticas Predictivas Actualizadas",
-                            "El motor de Inteligencia Artificial completó la predicción de demanda y propensión de compra.",
-                            "success", "ai-predictive")
+    store.record_prediction(get_current_user(), timeframe, result)
     return jsonify({"success": True, "data": result})
 
 
@@ -1203,40 +1085,9 @@ def google_login():
     return redirect(url_for("main.google.login"))
 
 
-def _find_or_create_client_session(email: str, name: str, avatar: str | None = None) -> UserSession:
-    """Crea (o reutiliza) la sesión de cliente para el correo de Google."""
-    existing = next((u for u in store.available_users if u.email.lower() == email.lower()), None)
-    if existing:
-        if avatar:
-            existing.avatar = avatar
-        return existing
-    user = UserSession(
-        id=new_id("usr-g"),
-        name=f"{name} (Cliente Viajero)",
-        email=email,
-        role="client",
-        department="Cliente Registrado",
-        avatar=avatar or "",
-        google_id=email,
-    )
-    store.available_users.append(user)
-    if not any(c.email.lower() == email.lower() for c in store.clients):
-        store.clients.append(Client(
-            id=new_id("cli"),
-            name=name,
-            email=email,
-            phone="+1 (000) 000-0000",
-            document_id=f"GGL-{email}",
-            category="Estándar",
-            status="Activo",
-            trips_count=0,
-            total_spent=0,
-            registration_date=date.today().isoformat(),
-            preferred_destinations=[],
-            avatar=avatar or "",
-        ))
-    store.persist()
-    return user
+def _find_or_create_client_session(email: str, name: str, avatar: str | None = None):
+    """Reutiliza o crea la cuenta y la ficha del cliente que entra con Google."""
+    return store.find_or_create_google_user(email, name, avatar=avatar or "")
 
 
 @bp.route("/login/google/complete")
@@ -1258,6 +1109,8 @@ def google_authorized():
     name = data.get("name", email.split("@")[0])
     user = _find_or_create_client_session(email, name, avatar=data.get("picture"))
     session["user_id"] = user.id
+    store.record_event("INICIO_SESION", "Autenticación", user=user,
+                       details=f"Inicio de sesión con Google de {user.email}.")
     flash(f"Bienvenido, {user.name.split(' (')[0]} (acceso con Google).", "success")
     return redirect(url_for("main.client_portal"))
 
@@ -1387,7 +1240,7 @@ def server_error(_e):
 # ----------------------------------------------------------------------
 # Facturación RD: NCF y PDF de factura
 # ----------------------------------------------------------------------
-@bp.route("/payments/<payment_id>/ncf", methods=["GET"])
+@bp.route("/payments/<int:payment_id>/ncf", methods=["GET"])
 @permission_required("payments:invoice")
 def payment_ncf(payment_id):
     """NCF de un pago. Autorización y propiedad ya comprobadas; la emisión
@@ -1398,7 +1251,7 @@ def payment_ncf(payment_id):
     return not_implemented_yet("La emisión del NCF")
 
 
-@bp.route("/payments/<payment_id>/factura", methods=["GET"])
+@bp.route("/payments/<int:payment_id>/factura", methods=["GET"])
 @permission_required("payments:invoice")
 def payment_factura(payment_id):
     """Factura PDF de un pago. Autorización y propiedad ya comprobadas; el

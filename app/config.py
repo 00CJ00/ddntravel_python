@@ -8,11 +8,17 @@ El entorno real del proceso manda sobre el archivo .env (por eso se usa
 import os
 import secrets
 from datetime import timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 # Carga .env si existe, sin sobreescribir variables ya definidas en el entorno.
 load_dotenv()
+
+# Raíz del proyecto (carpeta que contiene ``app/``) y carpeta de datos.
+BASE_DIR = Path(__file__).resolve().parent.parent
+INSTANCE_DIR = BASE_DIR / "instance"
+DEFAULT_DATABASE_URI = f"sqlite:///{(INSTANCE_DIR / 'ddn.db').as_posix()}"
 
 # Texto de ejemplo usado en .env.example. Nunca debe usarse como clave real.
 EXAMPLE_SECRET_KEY = "genera_una_clave_aleatoria_larga"
@@ -28,10 +34,21 @@ class Config:
     """Configuración base común a todos los entornos."""
 
     ENV = os.environ.get("FLASK_ENV", "development")
-    DEBUG = os.environ.get("FLASK_DEBUG") == "1"
+    DEBUG = (
+        os.environ.get("FLASK_ENV") != "production"
+        and os.environ.get("FLASK_DEBUG") == "1"
+    )
     HOST = os.environ.get("HOST", "127.0.0.1")
     PORT = int(os.environ.get("PORT", "3000"))
     SECRET_KEY = os.environ.get("SECRET_KEY", "").strip()
+
+    # --- Base de datos (P2). PostgreSQL en producción vía DATABASE_URL ---
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URI
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
+    # Número de respaldos que conserva scripts/backup.py y ``flask backup``.
+    BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "10"))
+    BACKUP_DIR = os.environ.get("BACKUP_DIR") or str(BASE_DIR / "backups")
 
     # --- Sesión y cookies (RNF-01) ---
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)

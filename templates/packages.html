@@ -23,8 +23,8 @@
         <p class="text-2xs text-slate-300 line-clamp-2">{{ pkg.description }}</p>
         <div class="flex items-center justify-between pt-2 border-t border-white/5">
           <div>
-            <span class="text-lg font-bold text-emerald-400">${{ pkg.price_usd }}</span><span class="text-2xs text-slate-400"> USD/persona</span>
-            {% if pkg.original_price_usd %}<span class="block text-3xs text-slate-500 line-through">${{ pkg.original_price_usd }}</span>{% endif %}
+            <span class="text-lg font-bold text-emerald-400">${{ pkg.price_usd|usd }}</span><span class="text-2xs text-slate-400"> USD/persona</span>
+            {% if pkg.original_price_usd %}<span class="block text-3xs text-slate-500 line-through">${{ pkg.original_price_usd|usd }}</span>{% endif %}
           </div>
           <span class="text-2xs font-bold {{ 'text-emerald-400' if pkg.available_slots > 5 else 'text-rose-400' }}">{{ pkg.available_slots }} cupos</span>
         </div>

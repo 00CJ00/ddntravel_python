@@ -18,7 +18,7 @@
         <p class="text-slate-400">{{ act.destination_name }} · {{ act.duration_hours }}h · {{ act.difficulty }}</p>
         <p class="text-slate-300 line-clamp-2">{{ act.description }}</p>
         <div class="flex items-center justify-between pt-2 border-t border-white/5">
-          <span class="text-white font-bold">${{ act.price_usd }} USD</span>
+          <span class="text-white font-bold">${{ act.price_usd|usd }} USD</span>
           <span class="text-slate-400">{{ '🧭 Con guía' if act.includes_guide else 'Sin guía' }}</span>
         </div>
       </div>

@@ -19,7 +19,7 @@
         <p class="text-slate-400">{{ dest.country }} · {{ dest.region }} · ⭐ {{ dest.rating }}</p>
         <p class="text-slate-300 line-clamp-2">{{ dest.description }}</p>
         <p class="text-slate-400">Clima: {{ dest.weather_type }} · Mejor época: {{ dest.best_season }}</p>
-        <p class="text-slate-500">Desde <span class="text-emerald-400 font-bold">${{ dest.base_price_usd }} USD</span></p>
+        <p class="text-slate-500">Desde <span class="text-emerald-400 font-bold">${{ dest.base_price_usd|usd }} USD</span></p>
         <button onclick="document.querySelector('#modal-ai-itinerary select[name=destination]').value='{{ dest.name }}'; openModal('modal-ai-itinerary');" class="w-full mt-1 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white text-2xs font-bold">✨ Generar Itinerario IA</button>
       </div>
     </div>

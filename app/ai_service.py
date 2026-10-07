@@ -86,7 +86,7 @@ def get_predictive_analytics(clients: list, bookings: list, packages: list, time
         for c in clients[:10]
     ]
     bookings_summary = [
-        {"destination": b.destination_name, "total": b.total_price, "status": b.status,
+        {"destination": b.destination_name, "total": float(b.total_price or 0), "status": b.status,
          "travelerCount": b.travelers}
         for b in bookings[:12]
     ]
@@ -127,7 +127,7 @@ Tu respuesta debe ser un análisis estadístico predictivo exhaustivo y accionab
 }}
 """
 
-    total_booked_value = sum(b.total_price for b in bookings)
+    total_booked_value = float(sum((b.total_price or 0) for b in bookings))
 
     def fallback():
         return {

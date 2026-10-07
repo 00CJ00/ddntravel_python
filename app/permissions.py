@@ -45,7 +45,7 @@ from functools import wraps
 from flask import abort, redirect, session, url_for
 
 from . import store as store_module
-from .models import Booking, Client, PaymentTransaction, TravelDocument
+from .models import Booking, Client, Payment, TravelDocument
 
 ROLES = ("admin", "employee", "client")
 
@@ -134,8 +134,6 @@ PUBLIC_ENDPOINTS = frozenset({
     "main.set_theme",
     "main.google_login",
     "main.google_authorized",
-    "google.login",
-    "google.authorized",
 })
 
 #: Endpoint -> permiso requerido. Debe cubrir TODAS las rutas de la aplicación;
@@ -280,6 +278,11 @@ def client_record(user):
     """
     if user is None:
         return None
+    client_id = getattr(user, "client_id", None)
+    if client_id:
+        client = get_store().get_client(client_id)
+        if client is not None:
+            return client
     email = (getattr(user, "email", "") or "").strip().lower()
     if not email:
         return None
@@ -312,7 +315,7 @@ def owns(user, obj) -> bool:
         return obj.client_id == client.id or same_email
     if isinstance(obj, TravelDocument):
         return getattr(obj, "client_id", None) == client.id
-    if isinstance(obj, PaymentTransaction):
+    if isinstance(obj, Payment):
         booking = get_store().get_booking(obj.booking_id)
         return booking is not None and owns(user, booking)
 

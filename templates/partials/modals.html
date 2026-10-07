@@ -31,7 +31,7 @@
           <select name="package_id" id="booking-package" onchange="recalcBookingPrice()" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
             <option value="">— Itinerario personalizado —</option>
             {% for p in store.packages %}
-            <option value="{{ p.id }}" data-price="{{ p.price_usd }}" data-slots="{{ p.available_slots }}" data-dest="{{ p.destination_name }}">{{ p.title }} (${{ p.price_usd }} USD) — {{ p.available_slots }} cupos</option>
+            <option value="{{ p.id }}" data-price="{{ p.price_usd }}" data-slots="{{ p.available_slots }}" data-dest="{{ p.destination_name }}">{{ p.title }} (${{ p.price_usd|usd }} USD) — {{ p.available_slots }} cupos</option>
             {% endfor %}
           </select>
         </div>
@@ -67,7 +67,7 @@
           <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Vuelo (Opcional)</label>
           <select name="flight_id" id="booking-flight" onchange="recalcBookingPrice()" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
             <option value="">— Ninguno —</option>
-            {% for f in store.flights %}<option value="{{ f.id }}" data-price="{{ f.price_usd }}">{{ f.airline }} ({{ f.flight_number }}): {{ f.origin }} ➔ {{ f.destination }} (+${{ f.price_usd }} USD/pax)</option>{% endfor %}
+            {% for f in store.flights %}<option value="{{ f.id }}" data-price="{{ f.price_usd }}">{{ f.airline }} ({{ f.flight_number }}): {{ f.origin }} ➔ {{ f.destination }} (+${{ f.price_usd|usd }} USD/pax)</option>{% endfor %}
           </select>
         </div>
       </div>

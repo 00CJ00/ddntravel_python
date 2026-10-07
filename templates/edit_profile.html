@@ -19,7 +19,7 @@
         <select name="client_id" class="mt-1 block w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-white placeholder-slate-500 focus:bg-white/10 focus:border-indigo-500/50">
           <option value="">-- Seleccionar cliente --</option>
           {% for u in available_users %}
-          {% if u.role != 'client' and not u.id.startswith('usr-g') %}
+          {% if u.role != 'client' and not u.google_id %}
           <option value="{{ u.id }}" {% if u.id == client.id %}selected{% endif %}>
             {{ u.name.split(' (')[0] }} ({{ 'Admin' if u.role=='admin' else 'Empleado' }})
           </option>

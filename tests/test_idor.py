@@ -165,7 +165,6 @@ def test_factura_ajena_devuelve_404_no_501(client, store, login_as):
 
 def _crear_reserva_con_saldo(store, email: str, total: float = 1000.0):
     """Reserva propia sin pagos: garantiza saldo pendiente para probar pagos/facturas."""
-    from app.models import UserSession
     cliente = next(c for c in store.clients if c.email == email)
     admin = next(u for u in store.available_users if u.role == "admin")
     resultado = store.create_booking(

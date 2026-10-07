@@ -21,7 +21,7 @@
         <p class="text-slate-300">{{ (hotel.amenities or [])|join(' · ') }}</p>
         <div class="space-y-1 pt-2 border-t border-white/5">
           {% for room in hotel.room_types or [] %}
-          <div class="flex items-center justify-between"><span class="text-slate-400">{{ room.type }}</span><span class="text-emerald-400 font-bold">${{ room.price_per_night }}/noche</span></div>
+          <div class="flex items-center justify-between"><span class="text-slate-400">{{ room.type }}</span><span class="text-emerald-400 font-bold">${{ room.price_per_night|usd }}/noche</span></div>
           {% endfor %}
         </div>
       </div>
