@@ -81,6 +81,15 @@ class Config:
     ENABLE_RESET = _flag("ENABLE_RESET", "0")
     ENABLE_DEV_SWITCH = _flag("ENABLE_DEV_SWITCH", "0")
 
+    # --- Emisor de facturas (RF-11) ---
+    AGENCY_RNC = os.environ.get("AGENCY_RNC", "131456789")
+    AGENCY_NAME = os.environ.get("AGENCY_NAME", "DDN Travel S.R.L.")
+    AGENCY_ADDRESS = os.environ.get("AGENCY_ADDRESS", "Av. Winston Churchill 1052, Santo Domingo")
+    AGENCY_PHONE = os.environ.get("AGENCY_PHONE", "+1 (809) 555-0123")
+    NCF_PREFIX = os.environ.get("NCF_PREFIX", "B02")
+    NCF_PREFIX_RNC = os.environ.get("NCF_PREFIX_RNC", "B01")
+    NCF_CREDITO_PREFIX = os.environ.get("NCF_CREDITO_PREFIX", "B04")
+
     # --- Límites de entrada (anti abuso) ---
     CHAT_MESSAGE_MAX_LENGTH = int(os.environ.get("CHAT_MESSAGE_MAX_LENGTH", "500"))
     CONTACT_MESSAGE_MAX_LENGTH = int(os.environ.get("CONTACT_MESSAGE_MAX_LENGTH", "2000"))

@@ -194,6 +194,7 @@ ENDPOINT_PERMISSIONS: dict[str, str] = {
     "main.request_callback": "profile:callback",
     "main.payment_ncf": "payments:invoice",
     "main.payment_factura": "payments:invoice",
+    "main.payment_void": "payments:void",
 }
 
 

@@ -175,13 +175,13 @@ def _crear_reserva_con_saldo(store, email: str, total: float = 1000.0):
     return resultado["booking"]
 
 
-def test_ncf_propio_devuelve_501_pendiente_p4(client, store, login_as):
+def test_ncf_propio_devuelve_ncf(client, store, login_as):
     login_as(client, CLIENT_EMAIL)
     propia = _crear_reserva_con_saldo(store, CLIENT_EMAIL)
     pago = _registrar_pago(store, propia)
     response = client.get(f"/payments/{pago.id}/ncf")
-    assert response.status_code == 501
-    assert "P4" in response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert response.get_json()["ncf"]
 
 
 def _registrar_pago(store, reserva, monto=25.0):

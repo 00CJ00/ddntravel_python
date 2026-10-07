@@ -5,13 +5,13 @@ de factura electrónica con diseño profesional.
 """
 
 import re
-import random
+import datetime
 from datetime import date
 from io import BytesIO
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, Paragraph, Spacer, TableStyle
 from reportlab.lib.units import inch, mm
 
@@ -55,33 +55,37 @@ def formatear_rnc(rnc: str) -> str:
 
 
 # ----------------------------------------------------------------------
-# NCF (Nota de Crédito Fiscal) – Generación secuencial
+# NCF (Comprobante Fiscal) – secuencia atómica y persistente (RF-11, P4)
 # ----------------------------------------------------------------------
-# Estructura: <Tipo>-<8 dígitos>
-#   Tipo A = Ventas gravadas (el más usado)
-#   Tipo B = Ventas exentas
-#   Tipo C = Retenciones
-# El último NCF usado se guarda en `state.json` bajo la clave ``ultimo_ncf``.
+# Formato: prefijo + 8 dígitos (p. ej. B02 → "B0200000001"). B01 si el cliente
+# tiene RNC válido; B04 para notas de crédito. Simulación académica (no DGII).
 
-def generar_ncf(tipo: str = "A", ultimo_ncf: str | None = None) -> str:
-    """Devuelve el siguiente NCF de la secuencia.
+def next_ncf(prefix: str, db_session=None) -> str:
+    """Devuelve el siguiente NCF para ``prefix`` de forma atómica.
 
-    - Si hay ``ultimo_ncf``, lo incrementa en uno.
-    - Si no, empieza en ``A-00000001``.
+    - Error claro si la secuencia está agotada o vencida.
+    - En la misma transacción que el pago (el caller hace commit).
     """
-    if ultimo_ncf:
-        try:
-            # Quitar guión si existe y separar
-            limpio = ultimo_ncf.replace("-", "")
-            letra = limpio[0]          # primera letra (tipo)
-            numero = int(limpio[1:])   # resto como entero
-            nuevo_num = numero + 1
-            # Mantener la letra original y formatear a 8 dígitos
-            return f"{letra}{nuevo_num:08d}"
-        except Exception:
-            pass
-    # Primera emisión
-    return f"A-00000001"
+    from .extensions import db
+    from .models import NcfSequence
+
+    session = db_session or db.session
+    seq = session.get(NcfSequence, prefix)
+    if seq is None:
+        # Secuencia no inicializada: crearla con el rango por defecto.
+        seq = NcfSequence(prefix=prefix, current=0, max_number=99999999,
+                          expires_on=None, active=True)
+        session.add(seq)
+        session.flush()
+    if not seq.active:
+        raise ValueError(f"La secuencia NCF '{prefix}' está inactiva.")
+    if seq.expires_on is not None and seq.expires_on < date.today():
+        raise ValueError(f"La secuencia NCF '{prefix}' está vencida ({seq.expires_on}).")
+    if seq.max_number and seq.current >= seq.max_number:
+        raise ValueError(f"La secuencia NCF '{prefix}' está agotada.")
+    seq.current = (seq.current or 0) + 1
+    session.flush()
+    return f"{prefix}{seq.current:08d}"
 
 
 # ----------------------------------------------------------------------
@@ -123,17 +127,12 @@ def generar_pdf_factura(
     elements = []
 
 # ------------ ENCADENADO / CABECERA -------------
-    # Logo placeholder (en producción reemplazar con el archivo PNG real)
-    logo_cell = Paragraph(
-        "<b>DDN TRAVEL</b>" if not False else "",
-        styles["Title"],
-    )  # ← True puesto para forzar layout; quitar o poner imagen real después.
-
-    # Título "FACTURA ELECTRÓNICA"
+    # Cabecera: marca + título (sin fila vacía [None, None]).
+    logo_cell = Paragraph("<b>DDN TRAVEL</b>", styles["Title"])
     title_cell = Paragraph("FACTURA ELECTRÓNICA", styles["h1"])
 
     header_table = Table(
-        [[logo_cell, title_cell], [None, None]], colWidths=[5 * inch, 2.5 * inch]
+        [[logo_cell, title_cell]], colWidths=[5 * inch, 2.5 * inch]
     )
     header_table.setStyle(
         TableStyle(
@@ -186,7 +185,7 @@ def generar_pdf_factura(
         i.get("price", 0) * i.get("quantity", 1) for i in items
     )
     table_data.append(
-        ["", "TOTAL", "", f"${total_amount:,.2f}", f"${total_amount:,.2f}"]
+        ["", "TOTAL", "", "", f"${total_amount:,.2f}"]
     )
 
     items_table = Table(
@@ -232,15 +231,6 @@ def generar_pdf_factura(
     return pdf_bytes
 
 
-# ----------------------------------------------------------------------
-# Utilidades varias
-# ----------------------------------------------------------------------
-def ultimo_ncf_desde_state(raw_state: dict) -> str | None:
-    """Extrae el último NCF grabado en el diccionario state.json que la app usa."""
-    return raw_state.get("ultimo_ncf")
-
-
-# Ejemplo rápido de uso (quando se importa el módulo):
-#   from app.billing import validar_rnc, generar_ncf, generar_pdf_factura
+# Ejemplo rápido de uso:
+#   from app.billing import validar_rnc, next_ncf, generar_pdf_factura
 #   ok = validar_rnc("J302010123")   # → True
-#   nxt  = generar_ncf("A", "A-00000005")  # → "A-00000006"

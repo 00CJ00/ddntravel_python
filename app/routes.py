@@ -15,6 +15,9 @@ from flask import (
 )
 from werkzeug.security import check_password_hash
 
+from io import BytesIO
+from flask import send_file
+
 from .store import store
 from . import ai_service
 from .extensions import limiter
@@ -936,6 +939,16 @@ def new_payment():
     return redirect(url_for("main.payments"))
 
 
+@bp.route("/payments/<int:payment_id>/void", methods=["POST"])
+@permission_required("payments:void")
+def payment_void(payment_id):
+    """Anula un pago (solo admin) y emite nota de crédito. Motivo obligatorio."""
+    result = store.void_payment(get_current_user(), payment_id,
+                                (request.form.get("reason") or "").strip())
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect_back("main.payments")
+
+
 # ----------------------------------------------------------------------
 # Promociones (RF-12)
 # ----------------------------------------------------------------------
@@ -1248,7 +1261,9 @@ def payment_ncf(payment_id):
     user = get_current_user()
     payment = find_payment(payment_id)
     owned_or_404(user, payment)
-    return not_implemented_yet("La emisión del NCF")
+    return jsonify({"payment_id": payment.id, "ncf": payment.ncf or "",
+                    "invoice_number": payment.invoice_number or "",
+                    "amount": float(payment.amount or 0)})
 
 
 @bp.route("/payments/<int:payment_id>/factura", methods=["GET"])
@@ -1259,7 +1274,26 @@ def payment_factura(payment_id):
     user = get_current_user()
     payment = find_payment(payment_id)
     owned_or_404(user, payment)
-    return not_implemented_yet("La factura en PDF")
+    from .billing import generar_pdf_factura
+    booking = store.get_booking(payment.booking_id)
+    client = store.get_client(booking.client_id) if booking is not None else None
+    items = [{
+        "description": (booking.destination_name or "Reserva de viaje") if booking else "Reserva",
+        "quantity": 1,
+        "price": float(payment.amount or 0),
+    }]
+    pdf = generar_pdf_factura(
+        titulo="Factura",
+        rnc_emitter=current_app.config.get("AGENCY_RNC", ""),
+        nombre_emitter=current_app.config.get("AGENCY_NAME", "DDN Travel"),
+        rnc_client=(client.document_id if client is not None else "") or "",
+        nombre_client=(client.name if client is not None else "Cliente"),
+        items=items,
+        total=float(payment.amount or 0),
+        ncf=payment.ncf or "N/D",
+    )
+    return send_file(BytesIO(pdf), mimetype="application/pdf",
+                     as_attachment=True, download_name=f"factura_{payment.invoice_number or payment.id}.pdf")
 
 
 # ----------------------------------------------------------------------
