@@ -1,6 +1,6 @@
 # Prompts para OpenCode — DDN Travel (plan completo hasta el 100 %)
 
-Basado en la auditoría de `ddntravel_python` (Flask + Jinja2, datos en `state.json`).
+Basado en la auditoría de `ddntravel_python` (Flask + Jinja2, datos en `state.json`) y el documento oficial de requerimientos de la Aplicación Inteligente para la Gestión de Agencia de Viajes Turísticos.
 Cada prompt es autocontenido, tiene criterios de aceptación verificables y asume que
 `AGENTS.md` (sección 1) ya está en la raíz del proyecto.
 
@@ -33,7 +33,7 @@ Cada prompt es autocontenido, tiene criterios de aceptación verificables y asum
 ## 1. `AGENTS.md` 
 
 ~~~markdown
-# AGENTS.md — DDN Travel
+# AGENTS.md — DDN Travel (Aplicación Web Inteligente de Agencia de Viajes Turísticos)
 
 ## Stack
 Flask 3 + Jinja2 (render en servidor), Tailwind, JS vanilla. Datos: SQLAlchemy + Alembic
@@ -59,17 +59,18 @@ IA: Gemini opcional con respaldo simulado. PDF: reportlab. Excel: openpyxl.
   salvo que actualices la plantilla en el mismo cambio.
 - Textos visibles en español; archivos UTF-8 sin BOM.
 
-## Reglas de negocio (fuente: documento de requerimientos)
-- RN-01 No se reserva sin disponibilidad.
-- RN-02 Toda reserva pertenece a un cliente.
-- RN-03 Los pagos se registran antes de confirmar servicios.
-- RN-04 Solo administradores eliminan información crítica.
-- RN-05 Todo cambio queda en historial (auditoría con before/after).
+## Reglas de negocio (Fuente: Requerimientos oficiales del sistema)
+- **RN-01:** No se podrá realizar ninguna reserva si no existe disponibilidad confirmada.
+- **RN-02:** Toda reserva obligatoriamente deberá estar asociada a un cliente registrado.
+- **RN-03:** Los pagos correspondientes deben registrarse y validarse antes de confirmar servicios.
+- **RN-04:** Solo los usuarios con rol de Administrador podrán eliminar información crítica del sistema.
+- **RN-05:** El sistema debe registrar un historial detallado de cambios (auditoría con before/after).
 
-## Documento de requerimientos
-Ver docs/requerimientos.md — fuente oficial de RF-01…RF-20, RNF-01…RNF-10, RN-01…RN-05.
-Los prompts de cada fase citan los códigos relevantes; ante cualquier duda de alcance,
-este documento es la referencia final.
+## Documento de requerimientos y Alcance General
+El sistema abarca el diseño e implementación de una plataforma inteligente orientada al área de Turismo y Gestión Empresarial para automatizar la gestión de reservas, clientes, paquetes turísticos, hoteles, vuelos, transporte, itinerarios, pagos, facturación y promociones. 
+- **Roles del Sistema:** Administrador (gestión general y crítica), Empleado (gestión operativa de reservas y clientes), Cliente (consulta, autogestión de perfil y reservas).
+- **Requerimientos Funcionales (RF-01 a RF-20):** Incluyen gestión de usuarios/roles, autenticación, clientes, destinos, paquetes, reservas, hoteles, vuelos, transporte, itinerarios, pagos/facturación, promociones, notificaciones, dashboard administrativo, reportes, búsqueda avanzada, gestión documental, actividades turísticas, auditoría y recomendaciones inteligentes.
+- **Requerimientos No Funcionales (RNF-01 a RNF-10):** Seguridad mediante autenticación y roles, cifrado de contraseñas, interfaz responsive, compatibilidad multiplataforma, soporte multiusuario, respaldos, escalabilidad, rendimiento eficiente, código mantenible y disponibilidad continua.
 
 ## Seguridad (invariantes que nunca se rompen)
 - Toda ruta que muta datos: sesión + permiso (`app/permissions.py`, única fuente de verdad) + CSRF.
@@ -263,7 +264,7 @@ Fase P3. Lee AGENTS.md y app/permissions.py. Decisiones ya tomadas (no las cambi
 
 Tareas:
 1. CRUD (crear/editar/eliminar) para Destino, Paquete, Hotel(+RoomType), Vuelo, Transporte, Actividad,
-   Cliente y Usuario. Rutas `/admin/<recurso>/new|<id>/edit|<id>/delete` con permisos de la matriz.
+   Cliente y Usuario. Rutas `/admin/<recurso>::new|<id>/edit|<id>/delete` con permisos de la matriz.
    - Validación en app/validators.py (requeridos, tipos, rangos, email válido, email/documento únicos en
      clientes, precios ≥ 0, return_date > departure_date). Errores → 422 (JSON) o flash + formulario.
    - Lista blanca de campos por recurso (arregla edit_destination, que permite sobrescribir `id`).
@@ -316,9 +317,9 @@ Fase P4. Lee AGENTS.md. Arregla y completa el módulo de facturación.
 4. Registro de pago (RF-11): monto > 0 y ≤ saldo pendiente (422 si excede), aritmética con Decimal,
    no se paga una reserva cancelada, método dentro de una lista válida, única (booking_id, reference) si
    hay referencia (evita doble envío). El NCF se asigna en la misma transacción.
-5. PDF de factura: GET /payments/<id>/factura (admin/employee, y el cliente dueño). Debe devolver un PDF
+5. PDF de factura: GET /payments/<id>::factura (admin/employee, y el cliente dueño). Debe devolver un PDF
    válido con emisor, cliente, NCF, fecha, ítems, subtotal y total.
-6. Anulación / reembolso: POST /payments/<id>/void (solo admin, motivo obligatorio): marca Anulado,
+6. Anulación / reembolso: POST /payments/<id>::void (solo admin, motivo obligatorio): marca Anulado,
    recalcula amount_paid y estado de la reserva vía BookingService.transition (puede volver a Pendiente),
    NUNCA reutiliza el NCF, y crea un Payment kind=reembolso con su recibo y NCF de nota de crédito (B04)
    referenciando el pago original. Todo con auditoría.
@@ -479,21 +480,4 @@ Fase P9. Lee AGENTS.md.
    permisos. Si no lo exige, documenta en README por qué se usan sesiones firmadas con CSRF.
 6. Calidad: pytest-cov con mínimo 80 % en app/, ruff configurado y un workflow de GitHub Actions que corra
    ruff y pytest.
-7. Documentación (RNF-09): README completo (instalación, .env, migraciones, seed, backup, tests,
-   credenciales demo, arquitectura con diagrama Mermaid) y docs/CUMPLIMIENTO.md con una tabla
-   RF-01…RF-20, RNF-01…RNF-10 y RN-01…RN-05 indicando archivo/endpoint/test que lo demuestra y estado
-   (Cubierto / Parcial + motivo). No maquilles: lista los pendientes reales.
-
-Aceptación: `docker compose up` levanta la app con PostgreSQL y datos del seed; pytest verde con cobertura
-≥ 80 %; docs/CUMPLIMIENTO.md completo.
-~~~
-
----
-
-## Verificación final (opcional, en el agente *plan*, solo lectura)
-
-~~~
-Audita el proyecto contra el documento de requerimientos (RF-01…RF-20, RNF-01…RNF-10, RN-01…RN-05).
-Sin editar nada, entrega una tabla por requisito con estado, evidencia (archivo, endpoint o test) y
-brechas restantes, y verifica que docs/CUMPLIMIENTO.md coincide con la realidad del código.
 ~~~
