@@ -25,8 +25,17 @@ def coerce_id(value):
         return None
 
 
+def _has_soft_delete(model) -> bool:
+    """True si el modelo tiene la columna ``deleted_at`` (soft delete)."""
+    return hasattr(model, "deleted_at")
+
+
 def get(model, ident):
-    """Devuelve la entidad con esa PK o ``None`` (sin lanzar por IDs inválidos)."""
+    """Devuelve la entidad con esa PK o ``None`` (sin lanzar por IDs inválidos).
+
+    Si el modelo tiene ``deleted_at``, una entidad borrada lógicamente se
+    trata como inexistente (no se puede editar, reservar ni consultar).
+    """
     if ident is None or ident == "":
         return None
     pk_columns = list(model.__table__.primary_key.columns)
@@ -34,12 +43,21 @@ def get(model, ident):
         ident = coerce_id(ident)
         if ident is None:
             return None
-    return db.session.get(model, ident)
+    obj = db.session.get(model, ident)
+    if obj is not None and _has_soft_delete(model) and obj.deleted_at is not None:
+        return None
+    return obj
 
 
 def all_of(model, order=None):
-    """Devuelve todas las filas del modelo, opcionalmente ordenadas."""
+    """Devuelve las filas del modelo, opcionalmente ordenadas.
+
+    Excluye las borradas lógicamente (``deleted_at IS NULL``) cuando el
+    modelo tiene esa columna.
+    """
     query = db.session.query(model)
+    if _has_soft_delete(model):
+        query = query.filter(model.deleted_at.is_(None))
     if order is not None:
         query = query.order_by(order)
     return query.all()

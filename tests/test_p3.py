@@ -6,6 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from app import models as m
 from conftest import ADMIN_EMAIL, EMPLOYEE_EMAIL, CLIENT_EMAIL, post_form
 
 
@@ -387,3 +388,80 @@ def test_todas_las_rutas_mutantes_auditan(app):
             f"{regla.endpoint} ({regla.rule}) no deja rastro de auditoría"
         revisadas.append(regla.endpoint)
     assert revisadas
+
+
+# ----------------------------------------------------------------------
+# Soft delete (baja lógica): Paquete, Hotel, Vuelo y Cliente (RN-04 / P3)
+# ----------------------------------------------------------------------
+def _audit(store, action):
+    return [l for l in store.audit_logs if l.action == action]
+
+
+def _borrar_via_http(client, login_as, post_csrf, url):
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, url, {})
+    assert resp.status_code == 200, resp.data[:200]
+    return resp
+
+
+def _paquete_libre(store):
+    return store.add_package(_admin(store), title="PkgBaja", price_usd=100,
+                             total_slots=10, available_slots=10)
+
+
+def test_paquete_baja_logica_conserva_fila(client, store, login_as, post_csrf):
+    pkg = _paquete_libre(store)
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/packages/{pkg.id}/delete")
+    fila = m.Package.query.get(pkg.id)
+    assert fila is not None and fila.deleted_at is not None
+    assert all(p.id != pkg.id for p in store.packages)
+    assert store.get_package(pkg.id) is None
+
+
+def test_hotel_baja_logica_conserva_fila(client, store, login_as, post_csrf):
+    hotel = store.add_hotel(_admin(store), name="HotelBaja")
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/hotels/{hotel.id}/delete")
+    fila = m.Hotel.query.get(hotel.id)
+    assert fila is not None and fila.deleted_at is not None
+    assert all(h.id != hotel.id for h in store.hotels)
+
+
+def test_vuelo_baja_logica_conserva_fila(client, store, login_as, post_csrf):
+    flight = store.add_flight(_admin(store), airline="X", flight_number="XX")
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/flights/{flight.id}/delete")
+    fila = m.Flight.query.get(flight.id)
+    assert fila is not None and fila.deleted_at is not None
+    assert all(f.id != flight.id for f in store.flights)
+
+
+def test_cliente_baja_logica_conserva_fila(client, store, login_as, post_csrf):
+    cli = store.add_client(_admin(store), name="CliBaja", email="clibaja@ejemplo.com")
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/clients/{cli.id}/delete")
+    fila = m.Client.query.get(cli.id)
+    assert fila is not None and fila.deleted_at is not None
+    assert all(c.id != cli.id for c in store.clients)
+
+
+def test_borrado_logico_audita_con_before_after(client, store, login_as, post_csrf):
+    pkg = _paquete_libre(store)
+    antes_logs = len(store.audit_logs)
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/packages/{pkg.id}/delete")
+    nuevos = len(store.audit_logs) - antes_logs
+    logs = store.audit_logs[:nuevos]
+    elim = next(l for l in logs if l.action == "ELIMINAR_PAQUETE")
+    assert (elim.before or {}).get("deleted_at") is None
+    assert (elim.after or {}).get("deleted_at") is not None
+
+
+def test_baja_logica_no_se_puede_editar_ni_reservar(client, store, login_as, post_csrf):
+    pkg = _paquete_libre(store)
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/packages/{pkg.id}/delete")
+    login_as(client, ADMIN_EMAIL)
+    edit = post_csrf(client, f"/admin/packages/{pkg.id}",
+                     {"title": "EDITADO", "price_usd": "1"})
+    assert edit.status_code == 404
+    cli = store.clients[0]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, package_id=pkg.id, travelers=1,
+                             total_price=500)
+    assert r["success"] is False  # baja lógica: no se puede reservar lo borrado

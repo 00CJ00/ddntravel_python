@@ -265,10 +265,12 @@ class DataStore:
         if client is None:
             return False
         before = audit.snapshot(client)
-        db.session.delete(client)
+        client.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        db.session.flush()
         audit.record("ELIMINAR_CLIENTE", "Clientes", entity_type="Client",
-                     entity_id=client_id, before=before, user=current_user,
-                     details=f"Eliminado cliente ID: {client_id}")
+                     entity_id=client_id, before=before, after=audit.snapshot(client),
+                     user=current_user,
+                     details=f"Eliminado cliente ID: {client_id} (baja lógica)")
         self._commit()
         return True
 
@@ -464,10 +466,12 @@ class DataStore:
         if self.has_active_bookings_for("package_id", pkg_id):
             return "has_active_bookings"
         before = audit.snapshot(pkg)
-        db.session.delete(pkg)
+        pkg.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        db.session.flush()
         audit.record("ELIMINAR_PAQUETE", "Paquetes", entity_type="Package",
-                     entity_id=pkg_id, before=before, user=current_user,
-                     details=f"Eliminado paquete ID: {pkg_id}")
+                     entity_id=pkg_id, before=before, after=audit.snapshot(pkg),
+                     user=current_user,
+                     details=f"Eliminado paquete ID: {pkg_id} (baja lógica)")
         self._commit()
         return "ok"
 
@@ -501,10 +505,12 @@ class DataStore:
         if hotel is None:
             return False
         before = audit.snapshot(hotel)
-        db.session.delete(hotel)
+        hotel.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        db.session.flush()
         audit.record("ELIMINAR_HOTEL", "Hoteles", entity_type="Hotel",
-                     entity_id=hotel_id, before=before, user=current_user,
-                     details=f"Eliminado hotel ID: {hotel_id}")
+                     entity_id=hotel_id, before=before, after=audit.snapshot(hotel),
+                     user=current_user,
+                     details=f"Eliminado hotel ID: {hotel_id} (baja lógica)")
         self._commit()
         return True
 
@@ -520,10 +526,12 @@ class DataStore:
         if flight is None:
             return False
         before = audit.snapshot(flight)
-        db.session.delete(flight)
+        flight.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        db.session.flush()
         audit.record("ELIMINAR_VUELO", "Vuelos", entity_type="Flight",
-                     entity_id=flight_id, before=before, user=current_user,
-                     details=f"Eliminado vuelo ID: {flight_id}")
+                     entity_id=flight_id, before=before, after=audit.snapshot(flight),
+                     user=current_user,
+                     details=f"Eliminado vuelo ID: {flight_id} (baja lógica)")
         self._commit()
         return True
 
@@ -589,6 +597,10 @@ class DataStore:
                     "message": "Regla de Negocio (RN-02): Toda reserva debe estar asociada a un cliente registrado válido."}
 
         selected_pkg = self.get_package(package_id) if package_id else None
+        # Un paquete inexistente o con baja lógica no se puede reservar (dangling).
+        if package_id and selected_pkg is None:
+            return {"success": False,
+                    "message": "Regla de Negocio (RN-01): El paquete seleccionado ya no está disponible."}
         if selected_pkg and selected_pkg.available_slots < travelers:
             return {"success": False,
                     "message": (f'Regla de Negocio (RN-01): No hay disponibilidad suficiente. El paquete '

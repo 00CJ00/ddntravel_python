@@ -23,6 +23,7 @@ class Hotel(BaseEntity, db.Model):
     contact_phone = db.Column(db.String(40))
     amenities = db.Column(db.JSON, default=list)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    deleted_at = db.Column(db.DateTime(timezone=True))
 
     room_types = db.relationship(
         "RoomType", back_populates="hotel", cascade="all, delete-orphan")
