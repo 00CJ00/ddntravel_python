@@ -261,6 +261,10 @@ def destinations():
 @permission_required("catalog:create")
 def admin_add_destination():
     data = request.form
+    from . import validators
+    errors = validators.validate_catalog("destination", dict(data))
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
     dest = store.add_destination(get_current_user(), **data)
     return jsonify({"success": True, "id": dest.id, "name": dest.name})
 
@@ -269,6 +273,10 @@ def admin_add_destination():
 @permission_required("catalog:edit")
 def admin_edit_destination(dest_id):
     data = request.form
+    from . import validators
+    errors = validators.validate_catalog("destination", dict(data))
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
     dest = store.edit_destination(get_current_user(), dest_id, **data)
     if dest:
         return jsonify({"success": True, "name": dest.name})
@@ -298,6 +306,11 @@ def _guard_active(result):
 @permission_required("catalog:create")
 def admin_new_package():
     f = request.form
+    from . import validators
+    errors = validators.validate_catalog("package", dict(f))
+    if errors:
+        flash("; ".join(errors), "error")
+        return redirect(url_for("main.packages"))
     store.add_package(
         get_current_user(),
         title=f.get("title", ""), destination_id=f.get("destination_id", ""),
@@ -316,6 +329,10 @@ def admin_new_package():
 @bp.route("/admin/packages/<int:pkg_id>", methods=["POST"])
 @permission_required("catalog:edit")
 def admin_edit_package(pkg_id):
+    from . import validators
+    errors = validators.validate_catalog("package", dict(request.form))
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
     updated = store.edit_package(get_current_user(), pkg_id, **dict(request.form))
     if updated is None:
         return jsonify({"success": False, "error": "Paquete no encontrado"}), 404
@@ -332,6 +349,11 @@ def admin_delete_package(pkg_id):
 @permission_required("catalog:create")
 def admin_new_hotel():
     f = request.form
+    from . import validators
+    errors = validators.validate_catalog("hotel", dict(f))
+    if errors:
+        flash("; ".join(errors), "error")
+        return redirect(url_for("main.hotels"))
     room_types = []
     rt_count = int_field(f, "room_types_count", 1, minimum=1, maximum=20)
     for i in range(rt_count):
@@ -358,6 +380,10 @@ def admin_edit_hotel(hotel_id):
     hotel = store.get_hotel(hotel_id)
     if hotel is None:
         return jsonify({"success": False, "error": "Hotel no encontrado"}), 404
+    from . import validators
+    errors = validators.validate_catalog("hotel", dict(f))
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
     rt_count = int_field(f, "room_types_count", len(hotel.room_types or []), minimum=1, maximum=20)
     room_types = []
     for i in range(rt_count):
@@ -386,6 +412,11 @@ def admin_delete_hotel(hotel_id):
 @permission_required("catalog:create")
 def admin_new_flight():
     f = request.form
+    from . import validators
+    errors = validators.validate_catalog("flight", dict(f))
+    if errors:
+        flash("; ".join(errors), "error")
+        return redirect(url_for("main.flights"))
     store.add_flight(
         get_current_user(),
         airline=f.get("airline", ""), flight_number=f.get("flight_number", ""),
@@ -402,6 +433,10 @@ def admin_new_flight():
 @bp.route("/admin/flights/<int:flight_id>", methods=["POST"])
 @permission_required("catalog:edit")
 def admin_edit_flight(flight_id):
+    from . import validators
+    errors = validators.validate_catalog("flight", dict(request.form))
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
     allowed = {"airline", "flight_number", "origin", "destination", "departure_time", "arrival_time",
                "price_usd", "seats_available", "total_seats", "flight_class", "status", "baggage_allowance", "image"}
     updated = store.edit_flight(get_current_user(), flight_id,
@@ -421,6 +456,11 @@ def admin_delete_flight(flight_id):
 @permission_required("catalog:create")
 def admin_new_transport():
     f = request.form
+    from . import validators
+    errors = validators.validate_catalog("transport", dict(f))
+    if errors:
+        flash("; ".join(errors), "error")
+        return redirect(url_for("main.transports"))
     store.add_transport(
         get_current_user(),
         type=f.get("type", ""), route=f.get("route", ""), vehicle_model=f.get("vehicle_model", ""),
@@ -434,6 +474,10 @@ def admin_new_transport():
 @bp.route("/admin/transports/<int:transport_id>", methods=["POST"])
 @permission_required("catalog:edit")
 def admin_edit_transport(transport_id):
+    from . import validators
+    errors = validators.validate_catalog("transport", dict(request.form))
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
     allowed = {"type", "route", "vehicle_model", "capacity", "available_seats", "driver_name",
                "price_usd", "status", "amenities", "image"}
     updated = store.edit_transport(get_current_user(), transport_id,
@@ -453,6 +497,11 @@ def admin_delete_transport(transport_id):
 @permission_required("catalog:create")
 def admin_new_activity():
     f = request.form
+    from . import validators
+    errors = validators.validate_catalog("activity", dict(f))
+    if errors:
+        flash("; ".join(errors), "error")
+        return redirect(url_for("main.activities"))
     store.add_activity(
         get_current_user(),
         title=f.get("title", ""), destination_id=f.get("destination_id", ""),
@@ -468,6 +517,10 @@ def admin_new_activity():
 @bp.route("/admin/activities/<int:activity_id>", methods=["POST"])
 @permission_required("catalog:edit")
 def admin_edit_activity(activity_id):
+    from . import validators
+    errors = validators.validate_catalog("activity", dict(request.form))
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
     allowed = {"title", "destination_id", "destination_name", "duration_hours", "price_usd",
                "includes_guide", "difficulty", "image", "description", "category", "schedule"}
     updated = store.edit_activity(get_current_user(), activity_id,

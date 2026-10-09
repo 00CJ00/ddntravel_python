@@ -445,6 +445,67 @@ def test_rn01_paquete_y_vuelo_se_revierten_juntos_si_falla_el_vuelo(store):
 
 
 # ----------------------------------------------------------------------
+# C5: validación de catálogo cableada (422 JSON en modales, flash en creates)
+# ----------------------------------------------------------------------
+def test_editar_paquete_precio_negativo_422(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, f"/admin/packages/{store.packages[0].id}",
+                     {"title": "X", "price_usd": "-5"})
+    assert resp.status_code == 422
+    assert b"debe ser >= 0" in resp.data
+
+
+def test_editar_vuelo_asientos_negativos_422(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, f"/admin/flights/{store.flights[0].id}",
+                     {"seats_available": "-3"})
+    assert resp.status_code == 422
+
+
+def test_editar_hotel_room_type_precio_negativo_422(client, store, login_as, post_csrf):
+    hotel = next(h for h in store.hotels if h.room_types)
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, f"/admin/hotels/{hotel.id}",
+                     {"name": "H", "room_type[0][type]": "Estándar",
+                      "room_type[0][price_per_night]": "-10", "room_type[0][available]": "2"})
+    assert resp.status_code == 422
+
+
+def test_crear_paquete_sin_titulo_flash_y_redirect(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    antes = len(store.packages)
+    resp = post_csrf(client, "/admin/packages/new", {"price_usd": "100"})
+    assert resp.status_code == 302
+    assert len(store.packages) == antes  # no se creó
+
+
+def test_crear_paquete_valido_redirect(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    antes = len(store.packages)
+    resp = post_csrf(client, "/admin/packages/new",
+                     {"title": "Paquete Válido", "price_usd": "250", "total_slots": "5",
+                      "available_slots": "5", "duration_days": "3", "duration_nights": "2"})
+    assert resp.status_code == 302
+    assert len(store.packages) == antes + 1
+    assert any(p.title == "Paquete Válido" for p in store.packages)
+
+
+def test_crear_destino_sin_nombre_422_modal(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, "/admin/destinations", {"country": "XX"})
+    assert resp.status_code == 422
+    assert b"obligatorio" in resp.data
+
+
+def test_crear_actividad_sin_titulo_flash(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    antes = len(store.activities)
+    resp = post_csrf(client, "/admin/activities/new", {"price_usd": "10"})
+    assert resp.status_code == 302
+    assert len(store.activities) == antes
+
+
+# ----------------------------------------------------------------------
 # Soft delete (baja lógica): Paquete, Hotel, Vuelo y Cliente (RN-04 / P3)
 # ----------------------------------------------------------------------
 def _audit(store, action):
