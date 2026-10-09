@@ -445,6 +445,17 @@ def test_rn01_paquete_y_vuelo_se_revierten_juntos_si_falla_el_vuelo(store):
 
 
 # ----------------------------------------------------------------------
+# Cierre: RN-04 reforzado en el store (defensa en profundidad)
+# ----------------------------------------------------------------------
+def test_empleado_no_elimina_documento_en_store(store):
+    """La ruta ya es solo admin; el store lo refuerza (RN-04/deuda P2->P3)."""
+    doc = store.documents[0]
+    employee = next(u for u in store.available_users if u.role == "employee")
+    assert store.delete_document(employee, doc.id) is False
+    assert next((d for d in store.documents if d.id == doc.id), None) is not None
+
+
+# ----------------------------------------------------------------------
 # C5: validación de catálogo cableada (422 JSON en modales, flash en creates)
 # ----------------------------------------------------------------------
 def test_editar_paquete_precio_negativo_422(client, store, login_as, post_csrf):

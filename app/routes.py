@@ -1063,8 +1063,9 @@ def new_document():
 def delete_document(doc_id):
     """Elimina un documento. Solo administradores (RN-04).
 
-    La comprobación vive en la ruta; ``store.delete_document`` todavía acepta
-    empleados y su validación se refuerza en la fase P3.
+    ``permission_required("documents:delete")`` cierra el paso a empleados y
+    ``store.delete_document`` añade la misma comprobación (defensa en
+    profundidad) desde la fase P3.
     """
     store.delete_document(get_current_user(), doc_id)
     return redirect(url_for("main.documents"))

@@ -106,13 +106,6 @@ def to_int(value, default=0) -> int:
         return default
 
 
-def apply_fields(obj, data: dict, allowed) -> None:
-    """Copia solo los campos de la lista blanca presentes en ``data``."""
-    for key, value in data.items():
-        if key in allowed and value is not None:
-            setattr(obj, key, value)
-
-
 def parse_date(value):
     if value in (None, ""):
         return None

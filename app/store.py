@@ -862,7 +862,9 @@ class DataStore:
         return doc
 
     def delete_document(self, current_user, doc_id) -> bool:
-        if current_user.role not in ("admin", "employee"):
+        # RN-04 / matriz de permisos: solo admin elimina (PDF-01/pdfs…). Refuerzo
+        # de defensa en profundidad, vía de por sí ya está acotada a admin.
+        if current_user.role != "admin":
             return False
         doc = documents_repo.get_document(doc_id)
         if doc is None:
