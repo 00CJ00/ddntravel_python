@@ -639,6 +639,8 @@ class DataStore:
         payment_status = "Pendiente"
 
         # RN-01: descuento atómico de cupos (ningún otro cobro al confirmar).
+        # Paquete, vuelo y transporte usan UPDATE condicional + rowcount; si
+        # alguno falla se revierte TODA la reserva (todo o nada).
         if selected_pkg:
             if not catalog.reserve_slots_atomic(selected_pkg.id, travelers):
                 self._rollback()
@@ -646,9 +648,15 @@ class DataStore:
                         "message": (f'Regla de Negocio (RN-01): No hay disponibilidad suficiente. El paquete '
                                     f'"{selected_pkg.title}" ya no cuenta con cupos para {travelers} viajeros.')}
         if flight is not None:
-            flight.seats_available = (flight.seats_available or 0) - travelers
+            if not catalog.reserve_flight_seats_atomic(flight.id, travelers):
+                self._rollback()
+                return {"success": False,
+                        "message": "Regla de Negocio (RN-01): El vuelo ya no tiene asientos suficientes."}
         if transport is not None:
-            transport.available_seats = (transport.available_seats or 0) - travelers
+            if not catalog.reserve_transport_seats_atomic(transport.id, travelers):
+                self._rollback()
+                return {"success": False,
+                        "message": "Regla de Negocio (RN-01): El transporte ya no tiene asientos suficientes."}
 
         try:
             booking = bookings_repo.create_booking_record(
@@ -686,13 +694,9 @@ class DataStore:
                 db.session.add(m.PromotionRedemption(
                     promotion_id=promo.id, booking_id=booking.id))
         except Exception:
+            # Los descuentos de inventario ya son atómicos y viven en la misma
+            # transacción: al revertirla, ningún cupo queda aplicado (todo o nada).
             self._rollback()
-            if selected_pkg:
-                catalog.release_slots(selected_pkg.id, travelers)
-            if flight is not None:
-                flight.seats_available = (flight.seats_available or 0) + travelers
-            if transport is not None:
-                transport.available_seats = (transport.available_seats or 0) + travelers
             raise
 
         audit.record("NUEVA_RESERVA", "Reservas", booking, user=current_user,

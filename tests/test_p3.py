@@ -391,6 +391,60 @@ def test_todas_las_rutas_mutantes_auditan(app):
 
 
 # ----------------------------------------------------------------------
+# RN-01 atómico en vuelo y transporte (UPDATE condicional)
+# ----------------------------------------------------------------------
+def test_rn01_vuelo_descuenta_atomico(store):
+    flight = store.add_flight(_admin(store), airline="AirX", flight_number="XA7",
+                              price_usd=120, seats_available=5, total_seats=5)
+    cli = store.clients[-1]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, flight_id=flight.id, travelers=2,
+                             total_price=400)
+    assert r["success"] is True
+    assert store.get_flight(flight.id).seats_available == 3
+
+
+def test_rn01_transporte_descuenta_atomico(store):
+    transport = store.add_transport(_admin(store), type="Bus", route="SDQ-POP",
+                                    capacity=10, available_seats=4, price_usd=60)
+    cli = store.clients[-1]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, transport_id=transport.id, travelers=3,
+                             total_price=300)
+    assert r["success"] is True
+    fila = next(t for t in store.transports if t.id == transport.id)
+    assert fila.available_seats == 1
+
+
+def test_rn01_vuelo_agota_y_no_sobrevende(store):
+    flight = store.add_flight(_admin(store), airline="AirX", flight_number="XA8",
+                              price_usd=120, seats_available=1, total_seats=1)
+    cli = store.clients[-1]
+    args = dict(client_id=cli.id, client_name=cli.name, client_email=cli.email,
+                flight_id=flight.id, total_price=120)
+    r1 = store.create_booking(_admin(store), travelers=1, **args)
+    assert r1["success"] is True
+    r2 = store.create_booking(_admin(store), travelers=1, **args)
+    assert r2["success"] is False and "RN-01" in r2["message"]
+    assert store.get_flight(flight.id).seats_available == 0
+
+
+def test_rn01_paquete_y_vuelo_se_revierten_juntos_si_falla_el_vuelo(store):
+    """Si el vuelo se agota entre el chequeo y el descuento, el paquete no queda
+    descontado (todo o nada en la misma transacción)."""
+    pkg = store.add_package(_admin(store), title="PkgVuelo", price_usd=100,
+                            total_slots=10, available_slots=10)
+    flight = store.add_flight(_admin(store), airline="AirX", flight_number="XA9",
+                              price_usd=120, seats_available=0, total_seats=0)
+    cli = store.clients[-1]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, package_id=pkg.id, flight_id=flight.id,
+                             travelers=1, total_price=300)
+    assert r["success"] is False
+    assert store.get_package(pkg.id).available_slots == 10
+
+
+# ----------------------------------------------------------------------
 # Soft delete (baja lógica): Paquete, Hotel, Vuelo y Cliente (RN-04 / P3)
 # ----------------------------------------------------------------------
 def _audit(store, action):
