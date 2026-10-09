@@ -170,6 +170,7 @@ def test_verificar_pago_endpoint(client, store, login_as, post_csrf):
     ("/admin/flights/{id}/delete", "flights"),
     ("/admin/transports/{id}/delete", "transports"),
     ("/admin/activities/{id}/delete", "activities"),
+    ("/admin/destinations/{id}/delete", "destinations"),
     ("/admin/clients/{id}/delete", "clients"),
     ("/admin/users/{id}/delete", "users"),
 ])
@@ -177,6 +178,7 @@ def test_rn04_employee_no_elimina(client, store, login_as, post_csrf, ruta, tipo
     login_as(client, EMPLOYEE_EMAIL)
     coll = {"packages": store.packages, "hotels": store.hotels, "flights": store.flights,
             "transports": store.transports, "activities": store.activities,
+            "destinations": store.destinations,
             "clients": store.clients, "users": store.available_users}[tipo]
     target = coll[0].id
     resp = post_csrf(client, ruta.format(id=target), {})
@@ -193,6 +195,65 @@ def test_eliminar_paquete_con_reservas_activas_409(client, store, login_as, post
         pytest.skip("sin reservas activas de paquete")
     resp = post_csrf(client, f"/admin/packages/{booking.package_id}/delete", {})
     assert resp.status_code == 409
+
+
+# ----------------------------------------------------------------------
+# Borrado de Destino y guard estricto de Transporte (C2)
+# ----------------------------------------------------------------------
+def test_eliminar_destino_sin_referencias(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    dest = store.add_destination(_admin(store), name="Destino Libre", country="XC")
+    resp = post_csrf(client, f"/admin/destinations/{dest.id}/delete", {})
+    assert resp.status_code == 200
+    assert all(d.id != dest.id for d in store.destinations)
+
+
+def test_crear_destino_via_http(client, store, login_as, post_csrf):
+    """POST /admin/destinations crea la fila (regresión del create roto por
+    ``save(assign_by_type(...))`` que devolvía ``save(None)``)."""
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, "/admin/destinations", {"name": "Crear HTTP", "country": "HC"})
+    assert resp.status_code == 200
+    assert any(d.name == "Crear HTTP" for d in store.destinations)
+
+
+def test_eliminar_destino_con_reserva_cancelada_409(client, store, login_as, post_csrf):
+    """El destino es borrado físico: una reserva cancelada también lo protege."""
+    login_as(client, ADMIN_EMAIL)
+    dest = store.add_destination(_admin(store), name="Destino Histórico", country="XH")
+    cli = store.clients[0]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, destination_name=dest.name,
+                             travelers=1, total_price=500)
+    store.cancel_booking(_admin(store), r["booking"].id, "cancelado en prueba")
+    resp = post_csrf(client, f"/admin/destinations/{dest.id}/delete", {})
+    assert resp.status_code == 409
+    assert any(d.id == dest.id for d in store.destinations)
+
+
+def test_eliminar_destino_referenciado_por_catalogo_409(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    destino = next((d for d in store.destinations if any(
+        getattr(p, "destination_id", None) == d.id for p in store.packages)), None)
+    if destino is None:
+        pytest.skip("sin destinos referenciados por paquetes en la semilla")
+    resp = post_csrf(client, f"/admin/destinations/{destino.id}/delete", {})
+    assert resp.status_code == 409
+
+
+def test_eliminar_transporte_con_solo_reserva_cancelada_409(client, store, login_as, post_csrf):
+    """El transporte es borrado físico: con SOLO una reserva cancelada no se elimina."""
+    login_as(client, ADMIN_EMAIL)
+    t = store.add_transport(_admin(store), type="Bus", route="Prueba C2", vehicle_model="V1",
+                            capacity=10, available_seats=10)
+    cli = store.clients[0]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, transport_id=t.id, travelers=1,
+                             total_price=500)
+    store.cancel_booking(_admin(store), r["booking"].id, "cancelado en prueba")
+    resp = post_csrf(client, f"/admin/transports/{t.id}/delete", {})
+    assert resp.status_code == 409
+    assert any(t2.id == t.id for t2 in store.transports)
 
 
 # ----------------------------------------------------------------------

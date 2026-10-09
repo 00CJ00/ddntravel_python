@@ -293,6 +293,24 @@ class DataStore:
         self._commit()
         return dest
 
+    def delete_destination(self, current_user, dest_id) -> str:
+        """Elimina un destino (borrado físico). Devuelve "not_found", "bookings",
+        "catalog" u "ok" según el guard de referencias.
+        """
+        dest = catalog.get_destination(dest_id)
+        if dest is None:
+            return "not_found"
+        status = self.destination_reference_status(dest)
+        if status in ("bookings", "catalog"):
+            return status
+        before = audit.snapshot(dest)
+        db.session.delete(dest)
+        audit.record("ELIMINAR_DESTINO", "Destinos", entity_type="Destination",
+                     entity_id=dest_id, before=before, user=current_user,
+                     details=f"Eliminado destino ID: {dest_id} - {dest.name}")
+        self._commit()
+        return "ok"
+
     def edit_package(self, current_user, pkg_id, **data):
         pkg = catalog.get_package(pkg_id)
         if pkg is None:
@@ -409,6 +427,36 @@ class DataStore:
             for b in self.bookings
         )
 
+    def has_referencing_bookings(self, field, ident) -> bool:
+        """Devuelve True si CUALQUIER reserva (incluidas las canceladas) referencia
+        al valor indicado. Se usa en entidades de borrado físico (transporte y
+        destino) para no perder el historial al eliminar una fila.
+        """
+        return any(getattr(b, field) == ident for b in self.bookings)
+
+    def _catalog_references_destination(self, dest_id) -> bool:
+        """True si algún paquete, hotel o actividad apunta al destino indicado."""
+        dest_id = coerce_id(dest_id)
+        for coll in (self.packages, self.hotels, self.activities):
+            if any(getattr(item, "destination_id", None) == dest_id for item in coll):
+                return True
+        return False
+
+    def destination_reference_status(self, dest) -> str:
+        """Comprueba si un destino puede eliminarse (función dedicada de Destino).
+
+        Compone los dos tipos de referencia posibles:
+          - "bookings": lo referencia CUALQUIER reserva (activa o cancelada) por
+            su columna denormalizada ``destination_name``;
+          - "catalog": algún paquete, hotel o actividad apunta a su ``destination_id``.
+        Devuelve "" si está libre para borrarse.
+        """
+        if self.has_referencing_bookings("destination_name", dest.name):
+            return "bookings"
+        if self._catalog_references_destination(dest.id):
+            return "catalog"
+        return ""
+
     def delete_package(self, current_user, pkg_id) -> str:
         pkg = catalog.get_package(pkg_id)
         if pkg is None:
@@ -434,7 +482,9 @@ class DataStore:
         return "ok" if self.delete_flight(current_user, flight_id) else "not_found"
 
     def delete_transport_guarded(self, current_user, transport_id) -> str:
-        if self.has_active_bookings_for("transport_id", transport_id):
+        # Guard estricto: también bloquea si SOLO reservas canceladas lo referencian
+        # (borrado físico aquí, no se puede perder el historial).
+        if self.has_referencing_bookings("transport_id", coerce_id(transport_id)):
             return "has_active_bookings"
         return "ok" if self.delete_transport(current_user, transport_id) else "not_found"
 

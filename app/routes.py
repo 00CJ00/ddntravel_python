@@ -275,11 +275,20 @@ def admin_edit_destination(dest_id):
     return jsonify({"success": False, "error": "Destino no encontrado"}), 404
 
 
+@bp.route("/admin/destinations/<int:dest_id>/delete", methods=["POST"])
+@permission_required("catalog:delete")
+def admin_delete_destination(dest_id):
+    return _guard_active(store.delete_destination(get_current_user(), dest_id))
+
+
 # --- Catálogo: crear/editar/eliminar paquetes, hoteles, vuelos, transporte, actividades ---
 def _guard_active(result):
     if result == "has_active_bookings":
         return jsonify({"success": False,
-                        "error": "No se puede eliminar: tiene reservas activas."}), 409
+                        "error": "No se puede eliminar: tiene reservas vinculadas."}), 409
+    if result in ("bookings", "catalog"):
+        return jsonify({"success": False,
+                        "error": "No se puede eliminar: tiene referencias vinculadas."}), 409
     if result == "not_found":
         return jsonify({"success": False, "error": "Recurso no encontrado"}), 404
     return jsonify({"success": True})

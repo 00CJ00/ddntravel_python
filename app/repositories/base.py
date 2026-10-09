@@ -153,11 +153,12 @@ def _coerce_value(coltype, value):
     return value
 
 
-def assign_by_type(obj, data, allowed=None, skip=()) -> None:
+def assign_by_type(obj, data, allowed=None, skip=()) -> object:
     """Asigna a ``obj`` los campos de ``data`` según el tipo de cada columna.
 
     Traduce los valores de formulario (siempre cadenas) al tipo real de la
     columna (fecha, decimal, booleano, JSON…) y respeta la lista blanca.
+    Devuelve ``obj`` para poder componer ``save(assign_by_type(...))``.
     """
     columns = {c.name: c for c in obj.__table__.columns}
     for key, value in data.items():
@@ -168,6 +169,7 @@ def assign_by_type(obj, data, allowed=None, skip=()) -> None:
         if allowed is not None and key not in allowed:
             continue
         setattr(obj, key, _coerce_value(columns[key].type, value))
+    return obj
 
 
 def save(obj):
