@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash
 
 from .store import store
 from . import ai_service
+from . import permissions as _permissions
 from .extensions import limiter
 from .view import store_view
 from .permissions import (
@@ -1075,6 +1076,17 @@ if google is not None and os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get(
     )
     bp.register_blueprint(google_bp)
     google_bp_enabled = True
+    # El blueprint de flask-dance publica sus endpoints bajo "main.google.*".
+    # Se declaran públicos (y con permiso nominal en el mapa) aquí, porque esta
+    # rama solo se ejecuta cuando el OAuth está configurado en el entorno; si no
+    # hay claves, esos endpoints no existen y no deben quedar registrados.
+    _permissions.PUBLIC_ENDPOINTS = _permissions.PUBLIC_ENDPOINTS | {
+        "main.google.login", "main.google.authorized"}
+    _permissions.ENDPOINT_PERMISSIONS.update({
+        "main.google.login": "session:entry",
+        "main.google.authorized": "session:entry",
+    })
+    LOGIN_EXEMPT.update({"main.google.login", "main.google.authorized"})
 
 
 @bp.route("/login/google")
