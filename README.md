@@ -175,6 +175,16 @@ GOOGLE_CLIENT_ID=tu_client_id_de_google.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=tu_client_secret_de_google
 ```
 
+## Facturación y NCF (simulación académica)
+
+El módulo de facturación (`app/billing.py`, RF-11) genera comprobantes con
+secuencia persistente (`NcfSequence`: B02 consumo por defecto, B01 con RNC
+válido, B04 notas de crédito) y factura PDF descargable.
+
+> **Aviso:** es una **simulación académica, NO autorizada por la DGII**.
+> No constituye facturación fiscal real. Los datos del emisor se configuran
+> con `AGENCY_RNC`, `AGENCY_NAME`, `AGENCY_ADDRESS` y `AGENCY_PHONE`.
+
 ## Usuarios de demostración
 
 La app muestra una pantalla de login. La contraseña de las 3 cuentas demo es `ddn123`:

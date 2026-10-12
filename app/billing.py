@@ -61,11 +61,19 @@ def formatear_rnc(rnc: str) -> str:
 # tiene RNC válido; B04 para notas de crédito. Simulación académica (no DGII).
 
 def next_ncf(prefix: str, db_session=None) -> str:
-    """Devuelve el siguiente NCF para ``prefix`` de forma atómica.
+    """Reserva y devuelve el siguiente NCF para ``prefix`` de forma atómica.
 
-    - Error claro si la secuencia está agotada o vencida.
-    - En la misma transacción que el pago (el caller hace commit).
+    El número devuelto es exactamente el reservado por esta transacción: el
+    incremento se hace con una sentencia condicional y se comprueba el
+    ``rowcount`` (SQLite) o con bloqueo de fila ``FOR UPDATE`` (PostgreSQL).
+    No confirma: participa de la transacción del llamador, de modo que si el
+    pago falla y revierte, el contador tampoco avanza de forma persistente.
+
+    Lanza ``ValueError`` si la secuencia no existe y no puede crearse, está
+    inactiva, está vencida o está agotada. Nunca devuelve un NCF inválido.
     """
+    from sqlalchemy import update
+
     from .extensions import db
     from .models import NcfSequence
 
@@ -81,10 +89,31 @@ def next_ncf(prefix: str, db_session=None) -> str:
         raise ValueError(f"La secuencia NCF '{prefix}' está inactiva.")
     if seq.expires_on is not None and seq.expires_on < date.today():
         raise ValueError(f"La secuencia NCF '{prefix}' está vencida ({seq.expires_on}).")
-    if seq.max_number and seq.current >= seq.max_number:
+
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        # Bloqueo de fila: los concurrentes esperan a que esta transacción
+        # confirme o revierta antes de leer el contador.
+        locked = (session.query(NcfSequence)
+                  .filter(NcfSequence.prefix == prefix)
+                  .with_for_update()
+                  .one())
+        if locked.max_number and (locked.current or 0) >= locked.max_number:
+            raise ValueError(f"La secuencia NCF '{prefix}' está agotada.")
+        locked.current = (locked.current or 0) + 1
+        session.flush()
+        return f"{prefix}{locked.current:08d}"
+
+    # SQLite y otros: incremento condicional atómico en una sola sentencia.
+    # Un max_number sin valor (0/None) conserva la semántica previa: sin tope.
+    condition = [NcfSequence.prefix == prefix]
+    if seq.max_number:
+        condition.append(NcfSequence.current < seq.max_number)
+    reserved = session.execute(
+        update(NcfSequence).where(*condition).values(current=NcfSequence.current + 1))
+    if reserved.rowcount != 1:
         raise ValueError(f"La secuencia NCF '{prefix}' está agotada.")
-    seq.current = (seq.current or 0) + 1
-    session.flush()
+    session.refresh(seq)
     return f"{prefix}{seq.current:08d}"
 
 
@@ -101,6 +130,8 @@ def generar_pdf_factura(
     total: float,
     ncf: str,
     fecha: str = None,
+    direccion_emitter: str = "",
+    telefono_emitter: str = "",
 ) -> bytes:
     """Genera un PDF con el aspecto de una factura electrónica RD.
 
@@ -213,11 +244,11 @@ def generar_pdf_factura(
     elements.append(items_table)
     elements.append(Spacer(1, 12))
 
-    # ------------ PIE DE PÁGINA -------------
+    # ------------ PIE DE PÁGINA (datos del emisor desde configuración) -------------
     pie_texts = [
         "---  Copia del cliente ---",
-        "DDN Travel · Av. Winston Churchill 1052, Santo Domingo · República Dominicana",
-        "Tel: +1 (809) 555-0123  |  info@ddntravel.com",
+        f"{nombre_emitter} · {direccion_emitter or 'República Dominicana'}",
+        f"Tel: {telefono_emitter or ''}  |  info@ddntravel.com".strip(),
     ]
     for line in pie_texts:
         elements.append(

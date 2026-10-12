@@ -15,6 +15,13 @@ class Payment(BaseEntity, db.Model):
 
     __tablename__ = "payments"
 
+    # Impide el doble envío del mismo pago (solo cuando hay referencia;
+    # los NULL no colisionan ni en SQLite ni en PostgreSQL).
+    __table_args__ = (
+        db.UniqueConstraint("booking_id", "reference",
+                            name="uq_payments_booking_reference"),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     booking_id = db.Column(db.Integer, db.ForeignKey("bookings.id"), nullable=False, index=True)
     kind = db.Column(db.String(20), default="pago")
@@ -30,6 +37,11 @@ class Payment(BaseEntity, db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, index=True)
     voided_at = db.Column(db.DateTime(timezone=True))
     void_reason = db.Column(db.Text)
+    # Reembolso → pago original anulado (nulo en pagos normales).
+    original_payment_id = db.Column(db.Integer, db.ForeignKey("payments.id"))
+    original_payment = db.relationship(
+        "Payment", remote_side="Payment.id",
+        foreign_keys=[original_payment_id])
 
     # Alias de compatibilidad con los nombres que usan las plantillas.
     payment_method = synonym("method")

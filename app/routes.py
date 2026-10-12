@@ -933,9 +933,15 @@ def new_payment():
         user, booking_id,
         float_field(f, "amount"), f.get("payment_method", "Tarjeta de Crédito"),
         f.get("reference", ""))
+    if not result.get("success") and result.get("status") == 422:
+        # RF-11: validación de negocio rechazada (monto, saldo, método,
+        # referencia o NCF) → 422 sin cambios persistidos.
+        flash(result.get("message", "Pago rechazado."), "error")
+        return render_template("payments.html", active_tab="payments", payments=store.payments,
+                               pending_bookings=[b for b in store.bookings if b.payment_status != "Pagado"
+                                                 and b.status != "Cancelada"],
+                               error=result.get("message")), 422
     flash(result.get("message", "Pago registrado."), "success" if result.get("success") else "error")
-    # La asignación de NCF secuencial y persistente (RF-11 / P4) se hace dentro
-    # de la transacción del pago; ver /payments/<id>/ncf (501 en esta fase).
     return redirect(url_for("main.payments"))
 
 
@@ -1277,8 +1283,15 @@ def payment_factura(payment_id):
     from .billing import generar_pdf_factura
     booking = store.get_booking(payment.booking_id)
     client = store.get_client(booking.client_id) if booking is not None else None
+    concepto = (booking.destination_name or "Reserva de viaje") if booking else "Reserva"
+    if booking is not None:
+        concepto += f" ({booking.booking_code})"
+    if payment.reference:
+        concepto += f" · Ref: {payment.reference}"
+    # Importes del PAGO (no del total de la reserva: un pago parcial solo
+    # muestra lo efectivamente cobrado en esta factura).
     items = [{
-        "description": (booking.destination_name or "Reserva de viaje") if booking else "Reserva",
+        "description": concepto,
         "quantity": 1,
         "price": float(payment.amount or 0),
     }]
@@ -1291,6 +1304,9 @@ def payment_factura(payment_id):
         items=items,
         total=float(payment.amount or 0),
         ncf=payment.ncf or "N/D",
+        fecha=payment.date or None,
+        direccion_emitter=current_app.config.get("AGENCY_ADDRESS", ""),
+        telefono_emitter=current_app.config.get("AGENCY_PHONE", ""),
     )
     return send_file(BytesIO(pdf), mimetype="application/pdf",
                      as_attachment=True, download_name=f"factura_{payment.invoice_number or payment.id}.pdf")

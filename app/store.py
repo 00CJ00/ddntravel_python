@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 
 from . import audit
 from . import models as m
@@ -678,33 +679,41 @@ class DataStore:
             return {"success": False, "message": "Reserva no encontrada."}
         amount = to_decimal(amount)
         if amount <= 0:
-            return {"success": False, "message": "El monto del pago debe ser mayor a 0."}
+            return {"success": False, "status": 422,
+                    "message": "El monto del pago debe ser mayor a 0."}
         if method not in PAYMENT_METHODS:
-            return {"success": False, "message": f"Método de pago inválido: {method}."}
+            return {"success": False, "status": 422,
+                    "message": f"Método de pago inválido: {method}."}
         if booking.status == "Cancelada":
-            return {"success": False, "message": "No se puede pagar una reserva cancelada."}
+            return {"success": False, "status": 422,
+                    "message": "No se puede pagar una reserva cancelada."}
 
-        # Saldo pendiente (solo pagos Completados cuentan) y doble envío de referencia.
+        # Saldo pendiente: solo pagos Completados de kind "pago" cuentan
+        # (se excluyen anulados y reembolsos). Doble envío de referencia.
         pending = to_decimal(booking.total_price) - sum(
             to_decimal(p.amount) for p in self.payments
-            if p.booking_id == booking.id and p.status == "Completado")
+            if p.booking_id == booking.id and p.status == "Completado"
+            and p.kind != "reembolso")
         if amount > pending:
-            return {"success": False, "message": f"El monto excede el saldo pendiente (${pending:.2f})."}
+            return {"success": False, "status": 422,
+                    "message": f"El monto excede el saldo pendiente (${pending:.2f})."}
         if ref_number:
             existed = next((p for p in self.payments if p.booking_id == booking.id and p.reference == ref_number), None)
             if existed is not None:
-                return {"success": False, "message": "Ya existe un pago con esa referencia."}
+                return {"success": False, "status": 422,
+                        "message": "Ya existe un pago con esa referencia."}
 
         booking_before = audit.snapshot(booking)
         # "Pago verificado": Tarjeta/PayPal nacen Completado; el resto Pendiente_verificacion.
         pay_status = "Completado" if method in ("Tarjeta de Crédito", "PayPal") \
             else "Pendiente_verificacion"
-        if pay_status == "Completado":
-            bookings_repo.apply_payment(booking, amount)
-        payment = payments_repo.create_payment(booking.id, amount, method,
-                                               reference=ref_number, status=pay_status)
-        # NCF en la misma transacción del pago (RF-11 / P4).
         try:
+            if pay_status == "Completado":
+                bookings_repo.apply_payment(booking, amount)
+            payment = payments_repo.create_payment(booking.id, amount, method,
+                                                   reference=ref_number, status=pay_status)
+            # NCF en la misma transacción del pago: si falla, revierte todo
+            # (el contador NCF tampoco avanza de forma persistente).
             from .billing import next_ncf, validar_rnc
             from flask import current_app
             client = people.get_client(booking.client_id)
@@ -712,32 +721,41 @@ class DataStore:
             prefix = current_app.config.get("NCF_PREFIX_RNC", "B01") if use_rnc \
                 else current_app.config.get("NCF_PREFIX", "B02")
             payment.ncf = next_ncf(prefix)
-        except Exception:
-            pass
 
-        if pay_status == "Completado" and booking.is_fully_paid() and booking.status != "Cancelada":
-            BookingService.transition(self, booking, "Confirmada")
-        elif pay_status != "Completado" and booking.amount_paid == 0:
-            booking.payment_status = "Pendiente_verificacion"
+            if pay_status == "Completado" and booking.is_fully_paid() and booking.status != "Cancelada":
+                BookingService.transition(self, booking, "Confirmada")
+            elif pay_status != "Completado" and booking.amount_paid == 0:
+                booking.payment_status = "Pendiente_verificacion"
 
-        if pay_status == "Completado" and booking.is_fully_paid():
-            documents_repo.create_document({
-                "client_id": booking.client_id, "doc_type": "Voucher de Reserva",
-                "file_name": f"Voucher_Oficial_{booking.booking_code}.pdf", "status": "Válido",
-                "upload_date": _today(),
-            })
+            if pay_status == "Completado" and booking.is_fully_paid():
+                documents_repo.create_document({
+                    "client_id": booking.client_id, "doc_type": "Voucher de Reserva",
+                    "file_name": f"Voucher_Oficial_{booking.booking_code}.pdf", "status": "Válido",
+                    "upload_date": _today(),
+                })
 
-        audit.record("PAGO_REGISTRADO", "Pagos & Facturación", payment, user=current_user,
-                     details=f"Registrado pago de ${amount} USD para reserva {booking.booking_code} "
-                             f"mediante {method}. Factura: {payment.invoice_number}")
-        audit.record("ACTUALIZAR_PAGO_RESERVA", "Reservas", booking, before=booking_before,
-                     user=current_user,
-                     details=f"Saldo de la reserva {booking.booking_code} actualizado a "
-                             f"${booking.amount_paid} USD ({booking.payment_status}).")
-        self._notify("Pago Recibido",
-                     f"Se registró pago de ${amount} USD para la reserva {booking.booking_code}.",
-                     "success", "payments")
-        self._commit()
+            audit.record("PAGO_REGISTRADO", "Pagos & Facturación", payment, user=current_user,
+                         details=f"Registrado pago de ${amount} USD para reserva {booking.booking_code} "
+                                 f"mediante {method}. Factura: {payment.invoice_number}")
+            audit.record("ACTUALIZAR_PAGO_RESERVA", "Reservas", booking, before=booking_before,
+                         user=current_user,
+                         details=f"Saldo de la reserva {booking.booking_code} actualizado a "
+                                 f"${booking.amount_paid} USD ({booking.payment_status}).")
+            self._notify("Pago Recibido",
+                         f"Se registró pago de ${amount} USD para la reserva {booking.booking_code}.",
+                         "success", "payments")
+            self._commit()
+        except IntegrityError:
+            self._rollback()
+            return {"success": False, "status": 422,
+                    "message": "Ya existe un pago con esa referencia."}
+        except ValueError as exc:
+            self._rollback()
+            return {"success": False, "status": 422, "message": str(exc)}
+        except Exception as exc:
+            self._rollback()
+            return {"success": False,
+                    "message": f"No se pudo registrar el pago: {exc}"}
         return {"success": True,
                 "message": f"Pago de ${amount} USD registrado exitosamente. Recibo: {payment.receipt_number}",
                 "payment": payment}
@@ -775,38 +793,75 @@ class DataStore:
             return {"success": False, "message": "El pago ya está anulado."}
         if not (reason or "").strip():
             return {"success": False, "message": "El motivo de anulación es obligatorio."}
+        # Idempotencia fuerte: si ya existe un reembolso para este pago,
+        # no se genera otro (aunque el estado hubiera cambiado por otra vía).
+        existing_refund = next(
+            (p for p in self.payments
+             if p.kind == "reembolso" and p.original_payment_id == payment.id), None)
+        if existing_refund is not None:
+            return {"success": False, "message": "Este pago ya tiene un reembolso registrado."}
 
+        was_completed = payment.status == "Completado"
         before = audit.snapshot(payment)
-        payment.status = "Anulado"
-        payment.voided_at = datetime.datetime.now(datetime.timezone.utc)
-        payment.void_reason = reason
-
         booking = self.get_booking(payment.booking_id)
-        if booking is not None and booking.status != "Cancelada":
-            booking.amount_paid = max(
-                0, to_decimal(booking.amount_paid) - to_decimal(payment.amount))
-            if not booking.is_fully_paid():
-                booking.payment_status = "Parcial" if booking.amount_paid > 0 else "Pendiente"
-                if booking.status == "Confirmada":
-                    BookingService.transition(self, booking, "Pendiente")
-
-        # Nota de crédito: recibo propio + NCF de nota de crédito (B04 o equivalente),
-        # independiente, nunca reutiliza el NCF original.
+        booking_before = audit.snapshot(booking) if booking is not None else None
         try:
-            from .billing import next_ncf
-            from flask import current_app
-            ncf_credito = next_ncf(current_app.config.get("NCF_CREDITO_PREFIX", "B04"))
-        except Exception:
-            ncf_credito = None
-        refund = payments_repo.create_payment(
-            booking.id if booking is not None else payment.booking_id,
-            payment.amount, payment.method, reference=payment.reference or "",
-            kind="reembolso", status="Completado")
-        refund.ncf = ncf_credito
+            payment.status = "Anulado"
+            payment.voided_at = datetime.datetime.now(datetime.timezone.utc)
+            payment.void_reason = reason
 
-        audit.record("ANULAR_PAGO", "Pagos & Facturación", payment, before=before,
-                     user=current_user, details=f"Pago {payment.receipt_number} anulado. Motivo: {reason}")
-        self._commit()
+            if booking is not None and booking.status != "Cancelada" and was_completed:
+                booking.amount_paid = max(
+                    0, to_decimal(booking.amount_paid) - to_decimal(payment.amount))
+                if not booking.is_fully_paid():
+                    booking.payment_status = "Parcial" if booking.amount_paid > 0 else "Pendiente"
+                    if booking.status == "Confirmada":
+                        BookingService.transition(self, booking, "Pendiente")
+
+            # Nota de crédito: recibo propio + NCF B04 propio, nunca reutiliza
+            # el NCF original. Solo hay reembolso si el pago estaba verificado
+            # (un pago nunca completado no movió importes).
+            refund = None
+            if was_completed:
+                try:
+                    from .billing import next_ncf
+                    from flask import current_app
+                    ncf_credito = next_ncf(current_app.config.get("NCF_CREDITO_PREFIX", "B04"))
+                except Exception:
+                    ncf_credito = None
+                refund = payments_repo.create_payment(
+                    booking.id if booking is not None else payment.booking_id,
+                    payment.amount, payment.method,
+                    reference=(f"NC-{payment.reference}" if payment.reference else None),
+                    kind="reembolso", status="Completado")
+                refund.original_payment_id = payment.id
+                refund.ncf = ncf_credito
+                audit.record("REEMBOLSO_CREADO", "Pagos & Facturación", refund,
+                             user=current_user,
+                             details=f"Nota de crédito {refund.receipt_number} (NCF {refund.ncf}) "
+                                     f"para el pago anulado {payment.receipt_number}.")
+
+            audit.record("ANULAR_PAGO", "Pagos & Facturación", payment, before=before,
+                         user=current_user, details=f"Pago {payment.receipt_number} anulado. Motivo: {reason}")
+            if booking is not None:
+                audit.record("ACTUALIZAR_PAGO_RESERVA", "Reservas", booking, before=booking_before,
+                             user=current_user,
+                             details=f"Saldo de la reserva {booking.booking_code} actualizado a "
+                                     f"${booking.amount_paid} USD ({booking.payment_status}).")
+            self._commit()
+        except IntegrityError:
+            self._rollback()
+            return {"success": False, "status": 422,
+                    "message": "Ya existe un reembolso para este pago."}
+        except ValueError as exc:
+            self._rollback()
+            return {"success": False, "status": 422, "message": str(exc)}
+        except Exception as exc:
+            self._rollback()
+            return {"success": False, "message": f"No se pudo anular el pago: {exc}"}
+        if refund is None:
+            return {"success": True, "message": "Pago anulado.",
+                    "payment": payment, "refund": refund}
         return {"success": True, "message": "Pago anulado y reembolso registrado.",
                 "payment": payment, "refund": refund}
 
@@ -1137,7 +1192,8 @@ class BookingService:
 
         if nuevo_estado == "Confirmada":
             completed = [p for p in store.payments
-                         if p.booking_id == booking.id and p.status == "Completado"]
+                         if p.booking_id == booking.id and p.status == "Completado"
+                         and p.kind != "reembolso"]
             if not completed:
                 return {"success": False,
                         "message": "No se puede confirmar la reserva: debe haber al menos un pago Completado."}
