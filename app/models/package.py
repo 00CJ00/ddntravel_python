@@ -31,6 +31,7 @@ class Package(BaseEntity, db.Model):
     description = db.Column(db.Text)
     departure_dates = db.Column(db.JSON, default=list)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    deleted_at = db.Column(db.DateTime(timezone=True))
 
     destination = db.relationship("Destination")
 

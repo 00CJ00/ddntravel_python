@@ -54,6 +54,16 @@ def release_slots(package_id, travelers) -> None:
         package.release_slots(travelers)
 
 
+def reserve_flight_seats_atomic(flight_id, travelers) -> bool:
+    """Aparta asientos de vuelo con el patrón atómico (RN-01, fase P3)."""
+    return decrement_if_available(m.Flight, flight_id, m.Flight.seats_available, travelers)
+
+
+def reserve_transport_seats_atomic(transport_id, travelers) -> bool:
+    """Aparta asientos de vehículo con el patrón atómico (RN-01, fase P3)."""
+    return decrement_if_available(m.Transport, transport_id, m.Transport.available_seats, travelers)
+
+
 # --- Hoteles y tipos de habitación -----------------------------------
 def list_hotels():
     return all_of(m.Hotel, m.Hotel.id)

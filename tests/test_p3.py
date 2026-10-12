@@ -6,6 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from app import models as m
 from conftest import ADMIN_EMAIL, EMPLOYEE_EMAIL, CLIENT_EMAIL, post_form
 
 
@@ -170,6 +171,7 @@ def test_verificar_pago_endpoint(client, store, login_as, post_csrf):
     ("/admin/flights/{id}/delete", "flights"),
     ("/admin/transports/{id}/delete", "transports"),
     ("/admin/activities/{id}/delete", "activities"),
+    ("/admin/destinations/{id}/delete", "destinations"),
     ("/admin/clients/{id}/delete", "clients"),
     ("/admin/users/{id}/delete", "users"),
 ])
@@ -177,6 +179,7 @@ def test_rn04_employee_no_elimina(client, store, login_as, post_csrf, ruta, tipo
     login_as(client, EMPLOYEE_EMAIL)
     coll = {"packages": store.packages, "hotels": store.hotels, "flights": store.flights,
             "transports": store.transports, "activities": store.activities,
+            "destinations": store.destinations,
             "clients": store.clients, "users": store.available_users}[tipo]
     target = coll[0].id
     resp = post_csrf(client, ruta.format(id=target), {})
@@ -193,6 +196,65 @@ def test_eliminar_paquete_con_reservas_activas_409(client, store, login_as, post
         pytest.skip("sin reservas activas de paquete")
     resp = post_csrf(client, f"/admin/packages/{booking.package_id}/delete", {})
     assert resp.status_code == 409
+
+
+# ----------------------------------------------------------------------
+# Borrado de Destino y guard estricto de Transporte (C2)
+# ----------------------------------------------------------------------
+def test_eliminar_destino_sin_referencias(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    dest = store.add_destination(_admin(store), name="Destino Libre", country="XC")
+    resp = post_csrf(client, f"/admin/destinations/{dest.id}/delete", {})
+    assert resp.status_code == 200
+    assert all(d.id != dest.id for d in store.destinations)
+
+
+def test_crear_destino_via_http(client, store, login_as, post_csrf):
+    """POST /admin/destinations crea la fila (regresión del create roto por
+    ``save(assign_by_type(...))`` que devolvía ``save(None)``)."""
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, "/admin/destinations", {"name": "Crear HTTP", "country": "HC"})
+    assert resp.status_code == 200
+    assert any(d.name == "Crear HTTP" for d in store.destinations)
+
+
+def test_eliminar_destino_con_reserva_cancelada_409(client, store, login_as, post_csrf):
+    """El destino es borrado físico: una reserva cancelada también lo protege."""
+    login_as(client, ADMIN_EMAIL)
+    dest = store.add_destination(_admin(store), name="Destino Histórico", country="XH")
+    cli = store.clients[0]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, destination_name=dest.name,
+                             travelers=1, total_price=500)
+    store.cancel_booking(_admin(store), r["booking"].id, "cancelado en prueba")
+    resp = post_csrf(client, f"/admin/destinations/{dest.id}/delete", {})
+    assert resp.status_code == 409
+    assert any(d.id == dest.id for d in store.destinations)
+
+
+def test_eliminar_destino_referenciado_por_catalogo_409(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    destino = next((d for d in store.destinations if any(
+        getattr(p, "destination_id", None) == d.id for p in store.packages)), None)
+    if destino is None:
+        pytest.skip("sin destinos referenciados por paquetes en la semilla")
+    resp = post_csrf(client, f"/admin/destinations/{destino.id}/delete", {})
+    assert resp.status_code == 409
+
+
+def test_eliminar_transporte_con_solo_reserva_cancelada_409(client, store, login_as, post_csrf):
+    """El transporte es borrado físico: con SOLO una reserva cancelada no se elimina."""
+    login_as(client, ADMIN_EMAIL)
+    t = store.add_transport(_admin(store), type="Bus", route="Prueba C2", vehicle_model="V1",
+                            capacity=10, available_seats=10)
+    cli = store.clients[0]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, transport_id=t.id, travelers=1,
+                             total_price=500)
+    store.cancel_booking(_admin(store), r["booking"].id, "cancelado en prueba")
+    resp = post_csrf(client, f"/admin/transports/{t.id}/delete", {})
+    assert resp.status_code == 409
+    assert any(t2.id == t.id for t2 in store.transports)
 
 
 # ----------------------------------------------------------------------
@@ -303,6 +365,31 @@ def test_promo_categoria_no_aplicable(store):
 
 
 # ----------------------------------------------------------------------
+# Cierre: precio hotel = price_per_night × noches × habitaciones al crear
+# ----------------------------------------------------------------------
+def test_crear_reserva_hotel_multiplica_por_noches_y_habitaciones(client, store, login_as, post_csrf):
+    """La ruta /bookings/new debe calcular el total del hotel con la fórmula
+    completa (price_per_night × noches × habitaciones), igual que update_booking."""
+    hotel = next(h for h in store.hotels if h.room_types)
+    price = hotel.room_types[0].price_per_night
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, "/bookings/new", {
+        "client_id": str(store.clients[0].id),
+        "hotel_id": str(hotel.id),
+        "departure_date": "2030-06-01",
+        "return_date": "2030-06-06",
+        "travelers": "2",
+        "rooms_count": "2",
+        "initial_payment": "0",
+    })
+    assert resp.status_code == 302
+    nueva = next(b for b in store.bookings
+                 if b.hotel_id == hotel.id and b.departure_date == __import__("datetime").date(2030, 6, 1))
+    # 5 noches × 2 habitaciones × price_per_night
+    assert nueva.total_price == price * 5 * 2
+
+
+# ----------------------------------------------------------------------
 # RN-05: toda ruta mutante produce auditoría
 # ----------------------------------------------------------------------
 def test_todas_las_rutas_mutantes_auditan(app):
@@ -326,3 +413,206 @@ def test_todas_las_rutas_mutantes_auditan(app):
             f"{regla.endpoint} ({regla.rule}) no deja rastro de auditoría"
         revisadas.append(regla.endpoint)
     assert revisadas
+
+
+# ----------------------------------------------------------------------
+# RN-01 atómico en vuelo y transporte (UPDATE condicional)
+# ----------------------------------------------------------------------
+def test_rn01_vuelo_descuenta_atomico(store):
+    flight = store.add_flight(_admin(store), airline="AirX", flight_number="XA7",
+                              price_usd=120, seats_available=5, total_seats=5)
+    cli = store.clients[-1]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, flight_id=flight.id, travelers=2,
+                             total_price=400)
+    assert r["success"] is True
+    assert store.get_flight(flight.id).seats_available == 3
+
+
+def test_rn01_transporte_descuenta_atomico(store):
+    transport = store.add_transport(_admin(store), type="Bus", route="SDQ-POP",
+                                    capacity=10, available_seats=4, price_usd=60)
+    cli = store.clients[-1]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, transport_id=transport.id, travelers=3,
+                             total_price=300)
+    assert r["success"] is True
+    fila = next(t for t in store.transports if t.id == transport.id)
+    assert fila.available_seats == 1
+
+
+def test_rn01_vuelo_agota_y_no_sobrevende(store):
+    flight = store.add_flight(_admin(store), airline="AirX", flight_number="XA8",
+                              price_usd=120, seats_available=1, total_seats=1)
+    cli = store.clients[-1]
+    args = dict(client_id=cli.id, client_name=cli.name, client_email=cli.email,
+                flight_id=flight.id, total_price=120)
+    r1 = store.create_booking(_admin(store), travelers=1, **args)
+    assert r1["success"] is True
+    r2 = store.create_booking(_admin(store), travelers=1, **args)
+    assert r2["success"] is False and "RN-01" in r2["message"]
+    assert store.get_flight(flight.id).seats_available == 0
+
+
+def test_rn01_paquete_y_vuelo_se_revierten_juntos_si_falla_el_vuelo(store):
+    """Si el vuelo se agota entre el chequeo y el descuento, el paquete no queda
+    descontado (todo o nada en la misma transacción)."""
+    pkg = store.add_package(_admin(store), title="PkgVuelo", price_usd=100,
+                            total_slots=10, available_slots=10)
+    flight = store.add_flight(_admin(store), airline="AirX", flight_number="XA9",
+                              price_usd=120, seats_available=0, total_seats=0)
+    cli = store.clients[-1]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, package_id=pkg.id, flight_id=flight.id,
+                             travelers=1, total_price=300)
+    assert r["success"] is False
+    assert store.get_package(pkg.id).available_slots == 10
+
+
+# ----------------------------------------------------------------------
+# Cierre: RN-04 reforzado en el store (defensa en profundidad)
+# ----------------------------------------------------------------------
+def test_empleado_no_elimina_documento_en_store(store):
+    """La ruta ya es solo admin; el store lo refuerza (RN-04/deuda P2->P3)."""
+    doc = store.documents[0]
+    employee = next(u for u in store.available_users if u.role == "employee")
+    assert store.delete_document(employee, doc.id) is False
+    assert next((d for d in store.documents if d.id == doc.id), None) is not None
+
+
+# ----------------------------------------------------------------------
+# C5: validación de catálogo cableada (422 JSON en modales, flash en creates)
+# ----------------------------------------------------------------------
+def test_editar_paquete_precio_negativo_422(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, f"/admin/packages/{store.packages[0].id}",
+                     {"title": "X", "price_usd": "-5"})
+    assert resp.status_code == 422
+    assert b"debe ser >= 0" in resp.data
+
+
+def test_editar_vuelo_asientos_negativos_422(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, f"/admin/flights/{store.flights[0].id}",
+                     {"seats_available": "-3"})
+    assert resp.status_code == 422
+
+
+def test_editar_hotel_room_type_precio_negativo_422(client, store, login_as, post_csrf):
+    hotel = next(h for h in store.hotels if h.room_types)
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, f"/admin/hotels/{hotel.id}",
+                     {"name": "H", "room_type[0][type]": "Estándar",
+                      "room_type[0][price_per_night]": "-10", "room_type[0][available]": "2"})
+    assert resp.status_code == 422
+
+
+def test_crear_paquete_sin_titulo_flash_y_redirect(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    antes = len(store.packages)
+    resp = post_csrf(client, "/admin/packages/new", {"price_usd": "100"})
+    assert resp.status_code == 302
+    assert len(store.packages) == antes  # no se creó
+
+
+def test_crear_paquete_valido_redirect(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    antes = len(store.packages)
+    resp = post_csrf(client, "/admin/packages/new",
+                     {"title": "Paquete Válido", "price_usd": "250", "total_slots": "5",
+                      "available_slots": "5", "duration_days": "3", "duration_nights": "2"})
+    assert resp.status_code == 302
+    assert len(store.packages) == antes + 1
+    assert any(p.title == "Paquete Válido" for p in store.packages)
+
+
+def test_crear_destino_sin_nombre_422_modal(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, "/admin/destinations", {"country": "XX"})
+    assert resp.status_code == 422
+    assert b"obligatorio" in resp.data
+
+
+def test_crear_actividad_sin_titulo_flash(client, store, login_as, post_csrf):
+    login_as(client, ADMIN_EMAIL)
+    antes = len(store.activities)
+    resp = post_csrf(client, "/admin/activities/new", {"price_usd": "10"})
+    assert resp.status_code == 302
+    assert len(store.activities) == antes
+
+
+# ----------------------------------------------------------------------
+# Soft delete (baja lógica): Paquete, Hotel, Vuelo y Cliente (RN-04 / P3)
+# ----------------------------------------------------------------------
+def _audit(store, action):
+    return [l for l in store.audit_logs if l.action == action]
+
+
+def _borrar_via_http(client, login_as, post_csrf, url):
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, url, {})
+    assert resp.status_code == 200, resp.data[:200]
+    return resp
+
+
+def _paquete_libre(store):
+    return store.add_package(_admin(store), title="PkgBaja", price_usd=100,
+                             total_slots=10, available_slots=10)
+
+
+def test_paquete_baja_logica_conserva_fila(client, store, login_as, post_csrf):
+    pkg = _paquete_libre(store)
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/packages/{pkg.id}/delete")
+    fila = m.Package.query.get(pkg.id)
+    assert fila is not None and fila.deleted_at is not None
+    assert all(p.id != pkg.id for p in store.packages)
+    assert store.get_package(pkg.id) is None
+
+
+def test_hotel_baja_logica_conserva_fila(client, store, login_as, post_csrf):
+    hotel = store.add_hotel(_admin(store), name="HotelBaja")
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/hotels/{hotel.id}/delete")
+    fila = m.Hotel.query.get(hotel.id)
+    assert fila is not None and fila.deleted_at is not None
+    assert all(h.id != hotel.id for h in store.hotels)
+
+
+def test_vuelo_baja_logica_conserva_fila(client, store, login_as, post_csrf):
+    flight = store.add_flight(_admin(store), airline="X", flight_number="XX")
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/flights/{flight.id}/delete")
+    fila = m.Flight.query.get(flight.id)
+    assert fila is not None and fila.deleted_at is not None
+    assert all(f.id != flight.id for f in store.flights)
+
+
+def test_cliente_baja_logica_conserva_fila(client, store, login_as, post_csrf):
+    cli = store.add_client(_admin(store), name="CliBaja", email="clibaja@ejemplo.com")
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/clients/{cli.id}/delete")
+    fila = m.Client.query.get(cli.id)
+    assert fila is not None and fila.deleted_at is not None
+    assert all(c.id != cli.id for c in store.clients)
+
+
+def test_borrado_logico_audita_con_before_after(client, store, login_as, post_csrf):
+    pkg = _paquete_libre(store)
+    antes_logs = len(store.audit_logs)
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/packages/{pkg.id}/delete")
+    nuevos = len(store.audit_logs) - antes_logs
+    logs = store.audit_logs[:nuevos]
+    elim = next(l for l in logs if l.action == "ELIMINAR_PAQUETE")
+    assert (elim.before or {}).get("deleted_at") is None
+    assert (elim.after or {}).get("deleted_at") is not None
+
+
+def test_baja_logica_no_se_puede_editar_ni_reservar(client, store, login_as, post_csrf):
+    pkg = _paquete_libre(store)
+    _borrar_via_http(client, login_as, post_csrf, f"/admin/packages/{pkg.id}/delete")
+    login_as(client, ADMIN_EMAIL)
+    edit = post_csrf(client, f"/admin/packages/{pkg.id}",
+                     {"title": "EDITADO", "price_usd": "1"})
+    assert edit.status_code == 404
+    cli = store.clients[0]
+    r = store.create_booking(_admin(store), client_id=cli.id, client_name=cli.name,
+                             client_email=cli.email, package_id=pkg.id, travelers=1,
+                             total_price=500)
+    assert r["success"] is False  # baja lógica: no se puede reservar lo borrado

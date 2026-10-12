@@ -265,10 +265,12 @@ class DataStore:
         if client is None:
             return False
         before = audit.snapshot(client)
-        db.session.delete(client)
+        client.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        db.session.flush()
         audit.record("ELIMINAR_CLIENTE", "Clientes", entity_type="Client",
-                     entity_id=client_id, before=before, user=current_user,
-                     details=f"Eliminado cliente ID: {client_id}")
+                     entity_id=client_id, before=before, after=audit.snapshot(client),
+                     user=current_user,
+                     details=f"Eliminado cliente ID: {client_id} (baja lógica)")
         self._commit()
         return True
 
@@ -292,6 +294,24 @@ class DataStore:
                      details=f"Actualizado destino ID: {dest_id} - {dest.name}")
         self._commit()
         return dest
+
+    def delete_destination(self, current_user, dest_id) -> str:
+        """Elimina un destino (borrado físico). Devuelve "not_found", "bookings",
+        "catalog" u "ok" según el guard de referencias.
+        """
+        dest = catalog.get_destination(dest_id)
+        if dest is None:
+            return "not_found"
+        status = self.destination_reference_status(dest)
+        if status in ("bookings", "catalog"):
+            return status
+        before = audit.snapshot(dest)
+        db.session.delete(dest)
+        audit.record("ELIMINAR_DESTINO", "Destinos", entity_type="Destination",
+                     entity_id=dest_id, before=before, user=current_user,
+                     details=f"Eliminado destino ID: {dest_id} - {dest.name}")
+        self._commit()
+        return "ok"
 
     def edit_package(self, current_user, pkg_id, **data):
         pkg = catalog.get_package(pkg_id)
@@ -409,6 +429,36 @@ class DataStore:
             for b in self.bookings
         )
 
+    def has_referencing_bookings(self, field, ident) -> bool:
+        """Devuelve True si CUALQUIER reserva (incluidas las canceladas) referencia
+        al valor indicado. Se usa en entidades de borrado físico (transporte y
+        destino) para no perder el historial al eliminar una fila.
+        """
+        return any(getattr(b, field) == ident for b in self.bookings)
+
+    def _catalog_references_destination(self, dest_id) -> bool:
+        """True si algún paquete, hotel o actividad apunta al destino indicado."""
+        dest_id = coerce_id(dest_id)
+        for coll in (self.packages, self.hotels, self.activities):
+            if any(getattr(item, "destination_id", None) == dest_id for item in coll):
+                return True
+        return False
+
+    def destination_reference_status(self, dest) -> str:
+        """Comprueba si un destino puede eliminarse (función dedicada de Destino).
+
+        Compone los dos tipos de referencia posibles:
+          - "bookings": lo referencia CUALQUIER reserva (activa o cancelada) por
+            su columna denormalizada ``destination_name``;
+          - "catalog": algún paquete, hotel o actividad apunta a su ``destination_id``.
+        Devuelve "" si está libre para borrarse.
+        """
+        if self.has_referencing_bookings("destination_name", dest.name):
+            return "bookings"
+        if self._catalog_references_destination(dest.id):
+            return "catalog"
+        return ""
+
     def delete_package(self, current_user, pkg_id) -> str:
         pkg = catalog.get_package(pkg_id)
         if pkg is None:
@@ -416,10 +466,12 @@ class DataStore:
         if self.has_active_bookings_for("package_id", pkg_id):
             return "has_active_bookings"
         before = audit.snapshot(pkg)
-        db.session.delete(pkg)
+        pkg.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        db.session.flush()
         audit.record("ELIMINAR_PAQUETE", "Paquetes", entity_type="Package",
-                     entity_id=pkg_id, before=before, user=current_user,
-                     details=f"Eliminado paquete ID: {pkg_id}")
+                     entity_id=pkg_id, before=before, after=audit.snapshot(pkg),
+                     user=current_user,
+                     details=f"Eliminado paquete ID: {pkg_id} (baja lógica)")
         self._commit()
         return "ok"
 
@@ -434,7 +486,9 @@ class DataStore:
         return "ok" if self.delete_flight(current_user, flight_id) else "not_found"
 
     def delete_transport_guarded(self, current_user, transport_id) -> str:
-        if self.has_active_bookings_for("transport_id", transport_id):
+        # Guard estricto: también bloquea si SOLO reservas canceladas lo referencian
+        # (borrado físico aquí, no se puede perder el historial).
+        if self.has_referencing_bookings("transport_id", coerce_id(transport_id)):
             return "has_active_bookings"
         return "ok" if self.delete_transport(current_user, transport_id) else "not_found"
 
@@ -451,10 +505,12 @@ class DataStore:
         if hotel is None:
             return False
         before = audit.snapshot(hotel)
-        db.session.delete(hotel)
+        hotel.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        db.session.flush()
         audit.record("ELIMINAR_HOTEL", "Hoteles", entity_type="Hotel",
-                     entity_id=hotel_id, before=before, user=current_user,
-                     details=f"Eliminado hotel ID: {hotel_id}")
+                     entity_id=hotel_id, before=before, after=audit.snapshot(hotel),
+                     user=current_user,
+                     details=f"Eliminado hotel ID: {hotel_id} (baja lógica)")
         self._commit()
         return True
 
@@ -470,10 +526,12 @@ class DataStore:
         if flight is None:
             return False
         before = audit.snapshot(flight)
-        db.session.delete(flight)
+        flight.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+        db.session.flush()
         audit.record("ELIMINAR_VUELO", "Vuelos", entity_type="Flight",
-                     entity_id=flight_id, before=before, user=current_user,
-                     details=f"Eliminado vuelo ID: {flight_id}")
+                     entity_id=flight_id, before=before, after=audit.snapshot(flight),
+                     user=current_user,
+                     details=f"Eliminado vuelo ID: {flight_id} (baja lógica)")
         self._commit()
         return True
 
@@ -539,6 +597,10 @@ class DataStore:
                     "message": "Regla de Negocio (RN-02): Toda reserva debe estar asociada a un cliente registrado válido."}
 
         selected_pkg = self.get_package(package_id) if package_id else None
+        # Un paquete inexistente o con baja lógica no se puede reservar (dangling).
+        if package_id and selected_pkg is None:
+            return {"success": False,
+                    "message": "Regla de Negocio (RN-01): El paquete seleccionado ya no está disponible."}
         if selected_pkg and selected_pkg.available_slots < travelers:
             return {"success": False,
                     "message": (f'Regla de Negocio (RN-01): No hay disponibilidad suficiente. El paquete '
@@ -577,6 +639,8 @@ class DataStore:
         payment_status = "Pendiente"
 
         # RN-01: descuento atómico de cupos (ningún otro cobro al confirmar).
+        # Paquete, vuelo y transporte usan UPDATE condicional + rowcount; si
+        # alguno falla se revierte TODA la reserva (todo o nada).
         if selected_pkg:
             if not catalog.reserve_slots_atomic(selected_pkg.id, travelers):
                 self._rollback()
@@ -584,9 +648,15 @@ class DataStore:
                         "message": (f'Regla de Negocio (RN-01): No hay disponibilidad suficiente. El paquete '
                                     f'"{selected_pkg.title}" ya no cuenta con cupos para {travelers} viajeros.')}
         if flight is not None:
-            flight.seats_available = (flight.seats_available or 0) - travelers
+            if not catalog.reserve_flight_seats_atomic(flight.id, travelers):
+                self._rollback()
+                return {"success": False,
+                        "message": "Regla de Negocio (RN-01): El vuelo ya no tiene asientos suficientes."}
         if transport is not None:
-            transport.available_seats = (transport.available_seats or 0) - travelers
+            if not catalog.reserve_transport_seats_atomic(transport.id, travelers):
+                self._rollback()
+                return {"success": False,
+                        "message": "Regla de Negocio (RN-01): El transporte ya no tiene asientos suficientes."}
 
         try:
             booking = bookings_repo.create_booking_record(
@@ -624,13 +694,9 @@ class DataStore:
                 db.session.add(m.PromotionRedemption(
                     promotion_id=promo.id, booking_id=booking.id))
         except Exception:
+            # Los descuentos de inventario ya son atómicos y viven en la misma
+            # transacción: al revertirla, ningún cupo queda aplicado (todo o nada).
             self._rollback()
-            if selected_pkg:
-                catalog.release_slots(selected_pkg.id, travelers)
-            if flight is not None:
-                flight.seats_available = (flight.seats_available or 0) + travelers
-            if transport is not None:
-                transport.available_seats = (transport.available_seats or 0) + travelers
             raise
 
         audit.record("NUEVA_RESERVA", "Reservas", booking, user=current_user,
@@ -796,7 +862,9 @@ class DataStore:
         return doc
 
     def delete_document(self, current_user, doc_id) -> bool:
-        if current_user.role not in ("admin", "employee"):
+        # RN-04 / matriz de permisos: solo admin elimina (PDF-01/pdfs…). Refuerzo
+        # de defensa en profundidad, vía de por sí ya está acotada a admin.
+        if current_user.role != "admin":
             return False
         doc = documents_repo.get_document(doc_id)
         if doc is None:

@@ -122,3 +122,65 @@ def validate_room_count(
             f"Solicitadas {rooms_count} habitaciones, pero solo hay {available_rooms} disponibles."
         )
     return errors
+
+
+# --- Catálogo (Fase P3) -------------------------------------------------
+# Reglas por recurso: campos requeridos, montos (>= 0) y enteros no negativos.
+CATALOG_RULES = {
+    "destination": {"required": ["name"], "money": [], "int_nonneg": []},
+    "package": {"required": ["title"],
+                "money": ["price_usd", "original_price_usd"],
+                "int_nonneg": ["duration_days", "duration_nights", "available_slots",
+                               "total_slots", "max_capacity"]},
+    "hotel": {"required": ["name"], "money": [], "int_nonneg": []},
+    "flight": {"required": [], "money": ["price_usd"],
+               "int_nonneg": ["seats_available", "total_seats"]},
+    "transport": {"required": [], "money": ["price_usd"],
+                  "int_nonneg": ["capacity", "available_seats"]},
+    "activity": {"required": ["title"], "money": ["price_usd"],
+                 "int_nonneg": ["duration_hours"]},
+}
+
+
+def validate_catalog(kind: str, data: dict) -> list[str]:
+    """Valida un recurso del catálogo (crear/editar).
+
+    Acepta los datos en bruto del formulario (cadenas). Los campos ausentes o
+    vacíos no se validan (las plantillas usan valores por defecto). Devuelve la
+    lista de mensajes de error (vacía si todo es correcto).
+    """
+    rules = CATALOG_RULES.get(kind)
+    if rules is None:
+        return [f"Tipo de recurso desconocido: {kind}"]
+    errors = validate_required(data, rules["required"])
+    for field in rules["money"]:
+        if data.get(field) not in (None, ""):
+            errors += validate_price(data[field], field)
+    for field in rules["int_nonneg"]:
+        if data.get(field) not in (None, ""):
+            errors += validate_positive_int(data[field], field, minimum=0)
+    if kind == "hotel":
+        errors += validate_room_types(data)
+    return errors
+
+
+def validate_room_types(data: dict) -> list[str]:
+    """Valida los tipos de habitación enviados en el formulario de un hotel.
+
+    Usa claves ``room_type[<i>][price_per_night]`` / ``room_type[<i>][available]``
+    (convención de la plantilla) y omite entradas vacías.
+    """
+    errors = []
+    i = 0
+    while f"room_type[{i}][type]" in data or f"room_type[{i}][price_per_night]" in data \
+            or f"room_type[{i}][available]" in data:
+        nombre = data.get(f"room_type[{i}][type]") or f"#{i + 1}"
+        price = data.get(f"room_type[{i}][price_per_night]")
+        available = data.get(f"room_type[{i}][available]")
+        if price == "" and available == "":
+            i += 1
+            continue
+        errors += validate_price(price, f"'{nombre}': precio por noche")
+        errors += validate_positive_int(available, f"'{nombre}': unidades", minimum=0)
+        i += 1
+    return errors
