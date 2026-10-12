@@ -199,3 +199,24 @@ git grep -n 'state\.json' -- app/              # -> app/billing.py:64 y :239
 
 Credenciales demo (README): `admin@ddntravel.com`, `sofia.v@ddntravel.com`,
 `roberto.gomez@gmail.com` — clave `ddn123`.
+
+## 11. Incidente al iniciar tras actualizar (2026-10-12)
+
+Al abrir `/login` después del pull, la aplicación respondió HTTP 500. La
+excepción reproducida fue `sqlite3.OperationalError: no such column:
+packages.deleted_at`: la base local seguía en la revisión `dd6986e58c40`,
+mientras que el modelo ya incluía las columnas de baja lógica de P3.
+
+Se aplicó, sin borrar ni recrear la base, la migración
+`7502a2a67959_p3_soft_delete_deleted_at_en_catalog.py` con:
+
+```powershell
+python -m flask --app run db upgrade
+```
+
+La revisión quedó en `7502a2a67959`; después `/login`, `/api/health` y `/`
+respondieron correctamente (HTTP 200; `/` redirige al login cuando no hay
+sesión). La migración ya estaba versionada: el arreglo del entorno local fue
+aplicarla. Para evitar que se repita en instalaciones existentes, el README
+indica ejecutar `db upgrade` después de actualizar el código y aclara que no se
+debe usar `seed --reset` para este problema.
