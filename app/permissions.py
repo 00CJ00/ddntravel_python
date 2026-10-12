@@ -134,6 +134,8 @@ PUBLIC_ENDPOINTS = frozenset({
     "main.set_theme",
     "main.google_login",
     "main.google_authorized",
+    "main.google.login",
+    "main.google.authorized",
 })
 
 #: Endpoint -> permiso requerido. Debe cubrir TODAS las rutas de la aplicación;

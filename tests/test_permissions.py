@@ -114,6 +114,44 @@ def test_google_oauth_es_publico_y_redirige_al_proveedor(app):
         assert autorizacion.location != "/login"
 
 
+def test_google_callback_crea_sesion_con_perfil_sin_nombre(app, client, store, monkeypatch):
+    """El perfil de Google puede omitir nombre y avatar sin provocar un 500."""
+    import app.routes as rutas
+
+    if not rutas.google_bp_enabled:
+        pytest.skip("Google OAuth no está configurado en este entorno")
+
+    class GoogleResponse:
+        def raise_for_status(self):
+            return None
+
+        @staticmethod
+        def json():
+            return {"email": "google.callback.test@example.com", "name": None}
+
+    class GoogleClient:
+        authorized = True
+
+        @staticmethod
+        def get(_url):
+            return GoogleResponse()
+
+    monkeypatch.setattr(rutas, "google", GoogleClient())
+    response = client.get("/login/google/complete")
+
+    assert response.status_code == 302
+    assert response.location.endswith("/client-portal")
+    user = next(
+        (candidate for candidate in store.available_users
+         if candidate.email == "google.callback.test@example.com"),
+        None,
+    )
+    assert user is not None
+    assert user.name.startswith("google.callback.test")
+    with client.session_transaction() as session:
+        assert session["user_id"] == user.id
+
+
 def test_ninguna_ruta_heredada_usa_el_decorador_old():
     """``role_required`` se eliminó: la matriz es la única fuente de verdad."""
     import app.routes as rutas

@@ -25,6 +25,7 @@ class Flight(BaseEntity, db.Model):
     baggage_allowance = db.Column(db.String(80))
     image = db.Column(db.String(500))
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    deleted_at = db.Column(db.DateTime(timezone=True))
 
     def describe(self) -> str:
         return f"{self.airline} {self.flight_number}"

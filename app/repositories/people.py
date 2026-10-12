@@ -25,7 +25,9 @@ def get_user_by_email(email):
 
 
 def create_user(data):
-    return save(assign_by_type(m.User(), data, skip=("id",)))
+    user = m.User()
+    assign_by_type(user, data, skip=("id",))
+    return save(user)
 
 
 # --- Clientes ---------------------------------------------------------

@@ -126,6 +126,12 @@ idempotente. Después de instalar una migración nueva, ejecuta:
 python -m flask --app wsgi db upgrade
 ```
 
+Si después de actualizar el código aparece un error como `no such column:
+packages.deleted_at` al abrir la página, la base local está pendiente de una
+migración. Ejecuta el comando anterior desde la raíz del proyecto y reinicia la
+aplicación. `db upgrade` conserva los datos existentes; no uses `seed --reset`
+para resolver este error.
+
 - `flask seed --reset` vuelve a sembrar desde cero, pero **solo en desarrollo**
   (`FLASK_ENV=development`); en producción el comando falla. Para invocarlo
   explícitamente en Windows: `python -m flask --app wsgi seed --reset`.
