@@ -898,6 +898,20 @@ def new_booking():
     flight_addon = (flight.price_usd * travelers) if flight else 0
     raw_total = (base_price * travelers) + flight_addon
 
+    # Precio de hotel = price_per_night × noches × habitaciones (RN-01, tarea 3 P3).
+    # Antes solo multiplicaba por travelers, ignorando noches y habitaciones.
+    if hotel and not package:
+        from datetime import date as _date
+        try:
+            dep = _date.fromisoformat(f.get("departure_date", "") or f.get("check_in", ""))
+            ret = _date.fromisoformat(f.get("return_date", "") or f.get("check_out", ""))
+            nights = max(1, (ret - dep).days)
+        except (ValueError, TypeError):
+            nights = 1
+        rooms_count = int_field(f, "rooms_count", 1, minimum=1, maximum=20)
+        hotel_price = hotel.room_types[0].price_per_night if hotel.room_types else 300
+        raw_total = (hotel_price * nights * rooms_count) + flight_addon
+
     promo_code = f.get("promo_code", "").strip()
     discounted_total = raw_total
     promo_note = ""

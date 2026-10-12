@@ -365,6 +365,31 @@ def test_promo_categoria_no_aplicable(store):
 
 
 # ----------------------------------------------------------------------
+# Cierre: precio hotel = price_per_night × noches × habitaciones al crear
+# ----------------------------------------------------------------------
+def test_crear_reserva_hotel_multiplica_por_noches_y_habitaciones(client, store, login_as, post_csrf):
+    """La ruta /bookings/new debe calcular el total del hotel con la fórmula
+    completa (price_per_night × noches × habitaciones), igual que update_booking."""
+    hotel = next(h for h in store.hotels if h.room_types)
+    price = hotel.room_types[0].price_per_night
+    login_as(client, ADMIN_EMAIL)
+    resp = post_csrf(client, "/bookings/new", {
+        "client_id": str(store.clients[0].id),
+        "hotel_id": str(hotel.id),
+        "departure_date": "2030-06-01",
+        "return_date": "2030-06-06",
+        "travelers": "2",
+        "rooms_count": "2",
+        "initial_payment": "0",
+    })
+    assert resp.status_code == 302
+    nueva = next(b for b in store.bookings
+                 if b.hotel_id == hotel.id and b.departure_date == __import__("datetime").date(2030, 6, 1))
+    # 5 noches × 2 habitaciones × price_per_night
+    assert nueva.total_price == price * 5 * 2
+
+
+# ----------------------------------------------------------------------
 # RN-05: toda ruta mutante produce auditoría
 # ----------------------------------------------------------------------
 def test_todas_las_rutas_mutantes_auditan(app):

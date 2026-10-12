@@ -171,7 +171,7 @@ Comando: `.\.venv\Scripts\python.exe -m pytest tests -q` → **271 passed**.
 | Pendiente | Fase | Detalle |
 |---|---|---|
 | `app/billing.py:64` y `:239` mencionan `state.json`; factura sin NCF persistente ni PDF descargable | P4 | NCF secuencial sobre `NcfSequence`, 12 rf actual |
-| `update_booking` sin recálculo completo del total por noches de hotel | P4 | precio hotel = `price_per_night × noches × habitaciones` (hoy ignora noches) |
+| `create_booking` no multiplica el precio del hotel por noches: usa `price_per_night × travelers` en vez de `price_per_night × noches × habitaciones`. La asimetría es entre creación y edición, no un defecto de `update_booking` — su recálculo (`price_per_night × noches × habitaciones`, verificado en `store.py:956-1039`) es correcto y server-side. Una reserva con hotel cambia de precio total si se edita después de crearse, aunque el total siempre se deriva de la BD (sin vector de manipulación del cliente). | Cerrado en P3 | Unificar el cálculo de precio de hotel en un único punto, aplicado tanto en creación como en edición |
 | Notificación "leída" sigue siendo booleana global aunque existe `NotificationRead` | P6 | leído por usuario |
 | IA/chat, itinerarios guardables, correo, alertas, subida real de documentos | P6 | RF-10, RF-13, RF-17, RF-20 |
 | Los 4 tests SQLAlchemy `Query.get()` marcados "legacy" (1.x) | limpieza | sustituir por `db.session.get` |
