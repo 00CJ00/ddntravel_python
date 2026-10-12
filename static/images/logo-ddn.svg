@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 155" role="img" aria-label="DDN Travel, el mundo te espera">
+  <defs>
+    <linearGradient id="wordmark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fff"/>
+      <stop offset="100%" stop-color="#dce3ed"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-10%" y="-15%" width="120%" height="135%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>
+      <feOffset dy="1"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope=".22"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g fill="url(#wordmark)" filter="url(#soft-shadow)"
+     font-family="Arial Black, Arial, sans-serif" font-weight="900">
+    <text x="48" y="94" font-size="101" letter-spacing="-7">DDN</text>
+    <text x="164" y="125" font-size="24" letter-spacing="5">TRAVEL</text>
+  </g>
+
+  <text x="221" y="149" text-anchor="middle" fill="#67b9ff"
+        font-family="Arial, sans-serif" font-size="12" font-weight="700"
+        letter-spacing="2.2">EL MUNDO TE ESPERA</text>
+</svg>

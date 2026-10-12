@@ -13,16 +13,18 @@ from flask import (
     Blueprint, render_template, request, redirect, url_for, session, jsonify,
     abort, flash, current_app
 )
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash
 
 from .store import store
 from . import ai_service
 from . import permissions as _permissions
-from .extensions import limiter
+from .extensions import db, limiter
 from .view import store_view
 from .permissions import (
-    PERMISSIONS, PUBLIC_ENDPOINTS, can, client_record, get_current_user,
-    get_store, owned_or_404, own_records, owns, permission_required,
+    ENDPOINT_PERMISSIONS, PERMISSIONS, PUBLIC_ENDPOINTS, can, client_record,
+    get_current_user, get_store, owned_or_404, own_records, owns,
+    permission_required,
 )
 
 bp = Blueprint("main", __name__)
@@ -1152,6 +1154,10 @@ if google is not None and os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get(
         redirect_to="main.google_authorized",
     )
     bp.register_blueprint(google_bp)
+    ENDPOINT_PERMISSIONS.update({
+        "main.google.login": "session:entry",
+        "main.google.authorized": "session:entry",
+    })
     google_bp_enabled = True
     # El blueprint de flask-dance publica sus endpoints bajo "main.google.*".
     # Se declaran públicos (y con permiso nominal en el mapa) aquí, porque esta
@@ -1189,17 +1195,39 @@ def google_authorized():
         info.raise_for_status()
         data = info.json()
     except Exception as _e:  # noqa: BLE001
+        current_app.logger.exception("No se pudo obtener el perfil de Google.")
         flash("No se pudo leer tu información de Google.", "error")
         return redirect(url_for("main.login"))
-    email = data.get("email", "")
-    if not email:
+    if not isinstance(data, dict):
+        current_app.logger.error("Google devolvió un perfil con formato inesperado.")
+        flash("Google devolvió información de perfil inválida.", "error")
+        return redirect(url_for("main.login"))
+
+    email_value = data.get("email")
+    if not isinstance(email_value, str) or not email_value.strip():
         flash("El correo de Google no está disponible.", "error")
         return redirect(url_for("main.login"))
-    name = data.get("name", email.split("@")[0])
-    user = _find_or_create_client_session(email, name, avatar=data.get("picture"))
+    email = email_value.strip().lower()
+    name_value = data.get("name")
+    name = name_value.strip()[:100] if isinstance(name_value, str) else ""
+    name = name or email.split("@", 1)[0]
+    avatar_value = data.get("picture")
+    avatar = avatar_value[:500] if isinstance(avatar_value, str) else ""
+
+    try:
+        user = _find_or_create_client_session(email, name, avatar=avatar)
+        if not user.is_active:
+            flash("Esta cuenta está desactivada. Contacta a la agencia.", "error")
+            return redirect(url_for("main.login"))
+        store.record_event("INICIO_SESION", "Autenticación", user=user,
+                           details=f"Inicio de sesión con Google de {user.email}.")
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("No se pudo completar el inicio de sesión con Google.")
+        flash("No se pudo completar el inicio de sesión. Inténtalo de nuevo más tarde.", "error")
+        return redirect(url_for("main.login"))
+
     session["user_id"] = user.id
-    store.record_event("INICIO_SESION", "Autenticación", user=user,
-                       details=f"Inicio de sesión con Google de {user.email}.")
     flash(f"Bienvenido, {user.name.split(' (')[0]} (acceso con Google).", "success")
     return redirect(url_for("main.client_portal"))
 
