@@ -21,6 +21,7 @@ from .ncf import NcfSequence
 from .promotion import Promotion, PromotionRedemption
 from .document import TravelDocument
 from .notification import Notification, NotificationRead
+from .alert import AlertRecord
 from .setting import Setting
 from .audit import AuditLog
 
@@ -29,5 +30,5 @@ __all__ = [
     "User", "Client", "Destination", "Package", "Hotel", "RoomType",
     "Flight", "Transport", "Activity", "Itinerary", "Booking", "BookingPassenger",
     "Payment", "NcfSequence", "Promotion", "PromotionRedemption", "TravelDocument",
-    "Notification", "NotificationRead", "Setting", "AuditLog",
+    "Notification", "NotificationRead", "AlertRecord", "Setting", "AuditLog",
 ]

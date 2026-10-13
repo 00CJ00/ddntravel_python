@@ -26,6 +26,7 @@ app/
   models/               # Modelos SQLAlchemy (uno por agregado): Client, Booking,
                         # Package, Hotel, RoomType, Flight, Transport, Activity,
                         # Payment, Promotion, AuditLog, TravelDocument, Notification,
+                        # AlertRecord,
                         # Itinerary, NcfSequence, Setting, User
                         # - BaseEntity aporta to_dict(), describe() y publicado()
                         # - Sin ñoñería de IDs: PK enteras autoincrementales
@@ -42,7 +43,7 @@ app/
                         # petición (IP, user agent) y helpers de login/logout
   backup.py             # Respaldo y restauración: SQLite con
                         # sqlite3.Connection.backup(), PostgreSQL con pg_dump
-  cli.py                # Comandos ``flask seed`` y ``flask backup``
+  cli.py                # Comandos ``flask seed``, ``flask backup`` y ``flask alerts``
   ai_service.py          # Gemini (google-genai) con fallback de datos simulados
                         # si no hay GEMINI_API_KEY. 3 funciones:
                         #   get_predictive_analytics(), get_recommendations(),
@@ -100,6 +101,12 @@ reservas, pagos y cancelaciones, configura `MAIL_SERVER`, `MAIL_PORT`,
 `MAIL_PASSWORD` se usan cuando el servidor los requiere. Sin servidor o
 remitente configurado, los eventos quedan registrados en el log y no se intenta
 conectar a SMTP.
+
+Las alertas se pueden ejecutar una vez con
+`python -m flask --app wsgi alerts run`. `ENABLE_SCHEDULER=0` es el valor predeterminado; en producción se
+recomienda programar ese comando con cron o el planificador del entorno. Solo
+activa `ENABLE_SCHEDULER=1` si el proceso de la aplicación debe ejecutar el job
+diario de APScheduler.
 
 ## Primera ejecución
 

@@ -93,6 +93,7 @@ class Config:
     # app.debug y ENABLE_DEV_SWITCH=1 (además de ser administrador).
     ENABLE_RESET = _flag("ENABLE_RESET", "0")
     ENABLE_DEV_SWITCH = _flag("ENABLE_DEV_SWITCH", "0")
+    ENABLE_SCHEDULER = _flag("ENABLE_SCHEDULER", "0")
 
     # --- Emisor de facturas (RF-11) ---
     AGENCY_RNC = os.environ.get("AGENCY_RNC", "131456789")

@@ -114,8 +114,13 @@ def create_app(config_object=None):
 
     # --- Comandos de la CLI (``flask seed``, ``flask backup``; ``flask db ...`` ---
     # lo aporta Flask-Migrate) ---
-    from .cli import backup_command, seed_command
+    from .cli import alerts_command, backup_command, seed_command
+    app.cli.add_command(alerts_command)
     app.cli.add_command(seed_command)
     app.cli.add_command(backup_command)
+
+    if app.config.get("ENABLE_SCHEDULER") and not app.testing:
+        from .alerts import start_scheduler
+        start_scheduler(app)
 
     return app
