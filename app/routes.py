@@ -1150,9 +1150,9 @@ def preview_promo():
 @bp.route("/documents/new", methods=["POST"])
 @permission_required("documents:create")
 def new_document():
+    """Sube un documento real (multipart) con validación de extensión y firma."""
     f = request.form
     user = get_current_user()
-    # Un cliente sube documentos a su propio expediente, nunca al de otro (IDOR).
     if user.role == "client":
         client = client_record(user)
         if client is None:
@@ -1160,13 +1160,39 @@ def new_document():
             return redirect(url_for("main.client_portal"))
     else:
         client = store.get_client(f.get("client_id", ""))
-    store.add_document(
-        user, client_id=client.id if client else "", client_name=client.name if client else "N/A",
-        doc_type=f.get("doc_type", "Voucher de Reserva"), document_number=f.get("document_number", ""),
-        file_name=f.get("file_name") or f"{f.get('doc_type', 'Documento')}_{f.get('document_number', '')}.pdf",
-        file_size="1.1 MB", expiry_date=f.get("expiry_date", ""), status="Válido",
+    if client is None:
+        flash("Debe indicar un cliente válido.", "error")
+        return redirect(url_for("main.documents"))
+    file = request.files.get("file")
+    if file is None:
+        flash("Debe adjuntar un archivo.", "error")
+        return redirect(url_for("main.documents"))
+    result = store.upload_document(
+        user, file, client.id,
+        doc_type=f.get("doc_type", "Documento"),
+        expiry_date=f.get("expiry_date", ""),
     )
+    if not result.get("success"):
+        flash(result.get("message", "No se pudo subir el archivo."), "error")
+        return redirect(url_for("main.documents"))
+    flash("Documento subido exitosamente.", "success")
     return redirect(url_for("main.documents"))
+
+
+@bp.route("/documents/<int:doc_id>/download")
+@permission_required("documents:view")
+def download_document(doc_id):
+    """Descarga un documento verificando propiedad (IDOR)."""
+    user = get_current_user()
+    try:
+        result = store.get_document_for_download(user, doc_id)
+    except PermissionError:
+        return jsonify({"success": False, "error": "No tienes permiso para descargar este documento"}), 403
+    if result is None:
+        return jsonify({"success": False, "error": "Documento no encontrado"}), 404
+    doc, path = result
+    return send_file(path, mimetype=doc.mime or "application/octet-stream",
+                     as_attachment=True, download_name=doc.file_name)
 
 
 @bp.route("/documents/<int:doc_id>/delete", methods=["POST"])

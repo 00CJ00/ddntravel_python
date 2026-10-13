@@ -50,6 +50,10 @@ class Config:
     BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "10"))
     BACKUP_DIR = os.environ.get("BACKUP_DIR") or str(BASE_DIR / "backups")
 
+    # --- Subida de documentos (RF-17) ---
+    UPLOAD_DIR = os.environ.get("UPLOAD_DIR") or str(BASE_DIR / "instance" / "uploads")
+    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 5 * 1024 * 1024))
+
     # --- Sesión y cookies (RNF-01) ---
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
     SESSION_COOKIE_HTTPONLY = True

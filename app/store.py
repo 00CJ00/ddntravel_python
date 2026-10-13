@@ -12,7 +12,9 @@ datos y cada mutación se confirma contra la sesión de SQLAlchemy.
 from __future__ import annotations
 
 import datetime
+import os
 
+from flask import current_app
 from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 
@@ -1036,6 +1038,43 @@ class DataStore:
                              f"para cliente {doc.client_id}")
         self._commit()
         return doc
+
+    def upload_document(self, current_user, file_storage, client_id, doc_type="Documento",
+                        expiry_date="") -> dict:
+        """Sube un archivo real (multipart) y crea el registro en BD."""
+        try:
+            stored, original, mime, size = documents_repo.upload_document_file(file_storage)
+        except ValueError as exc:
+            return {"success": False, "message": str(exc)}
+        doc = documents_repo.create_document({
+            "client_id": client_id, "doc_type": doc_type, "file_name": original,
+            "stored_name": stored, "mime": mime, "size_bytes": size,
+            "status": "Válido", "expiry_date": expiry_date or None,
+            "uploaded_by": getattr(current_user, "id", None),
+        })
+        audit.record("SUBIR_DOCUMENTO", "Documentos", doc, user=current_user,
+                     details=f"Archivo {original} ({size} bytes) subido para cliente {client_id}")
+        self._commit()
+        return {"success": True, "id": doc.id, "file_name": original}
+
+    def get_document_for_download(self, current_user, doc_id):
+        """Devuelve (doc, path) si el usuario tiene permiso, o None."""
+        doc = documents_repo.get_document(doc_id)
+        if doc is None:
+            return None
+        if current_user.role == "client":
+            client = people.get_client_by_email(current_user.email)
+            if client is None or doc.client_id != client.id:
+                raise PermissionError("No tienes permiso para descargar este documento.")
+        elif current_user.role not in ("admin", "employee"):
+            return None
+        if not doc.stored_name:
+            return None
+        path = os.path.join(current_app.config.get("UPLOAD_DIR", "instance/uploads"),
+                            doc.stored_name)
+        if not os.path.isfile(path):
+            return None
+        return doc, path
 
     def delete_document(self, current_user, doc_id) -> bool:
         # RN-04 / matriz de permisos: solo admin elimina (PDF-01/pdfs…). Refuerzo
