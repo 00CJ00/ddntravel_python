@@ -1,0 +1,11 @@
+Hola {{ client_name }}:
+
+Tu reserva {{ booking_code }} está confirmada.
+
+Destino: {{ destination }}
+Salida: {{ departure_date }}
+Regreso: {{ return_date }}
+Viajeros: {{ travelers }}
+Total: ${{ total_price }} USD
+
+Gracias por viajar con DDN Travel.

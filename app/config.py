@@ -79,6 +79,15 @@ class Config:
     AI_GENERATIVE_RATE_LIMIT = os.environ.get("AI_GENERATIVE_RATE_LIMIT", "10 per minute")
     AI_PREDICTIVE_RATE_LIMIT = os.environ.get("AI_PREDICTIVE_RATE_LIMIT", "6 per hour")
 
+    # --- Correo transaccional de notificaciones (RF-13) ---
+    MAIL_SERVER = os.environ.get("MAIL_SERVER") or None
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", "587"))
+    MAIL_USE_TLS = _flag("MAIL_USE_TLS", "1")
+    MAIL_USE_SSL = _flag("MAIL_USE_SSL", "0")
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME") or None
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD") or None
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER") or None
+
     # --- Interruptores de operaciones peligrosas (P1) ---
     # /reset solo existe con ENABLE_RESET=1; /switch-user solo con
     # app.debug y ENABLE_DEV_SWITCH=1 (además de ser administrador).

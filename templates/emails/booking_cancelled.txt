@@ -1,0 +1,6 @@
+Hola {{ client_name }}:
+
+La reserva {{ booking_code }} ha sido cancelada.
+Motivo: {{ reason }}
+
+Si necesitas ayuda, contacta a DDN Travel.

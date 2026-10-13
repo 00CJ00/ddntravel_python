@@ -1,0 +1,9 @@
+Hola {{ client_name }}:
+
+Recibimos un pago para tu reserva {{ booking_code }}.
+
+Monto: ${{ payment_amount }} USD
+Método: {{ payment_method }}
+Estado: {{ payment_status }}
+
+Gracias por viajar con DDN Travel.

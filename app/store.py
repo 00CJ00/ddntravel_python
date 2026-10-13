@@ -224,19 +224,24 @@ class DataStore:
         notifications_repo.create_notification(
             title, message, ntype=ntype, link_tab=link_tab, visible_roles=roles)
 
+    def notification_read_ids(self, user_id) -> set[int]:
+        return notifications_repo.read_ids_for_user(user_id)
+
     def add_notification(self, title, message, ntype="info", link_tab=None,
                          roles=None, visible_roles=None) -> None:
         self._notify(title, message, ntype, link_tab, roles, visible_roles)
         self._commit()
 
-    def mark_notification_as_read(self, notif_id) -> None:
+    def mark_notification_as_read(self, current_user, notif_id) -> None:
         notification = notifications_repo.get_notification(notif_id)
-        if notification is not None:
-            notifications_repo.mark_read(notification)
+        if (notification is not None
+                and (notification.visible_roles is None
+                     or current_user.role in notification.visible_roles)):
+            notifications_repo.mark_read(notification, current_user.id)
             self._commit()
 
-    def mark_all_notifications_as_read(self) -> None:
-        notifications_repo.mark_all_read()
+    def mark_all_notifications_as_read(self, current_user) -> None:
+        notifications_repo.mark_all_read(current_user.id, current_user.role)
         self._commit()
 
     # ------------------------------------------------------------------
@@ -771,6 +776,9 @@ class DataStore:
                      f"Reserva {booking.booking_code} generada para {client_name}. "
                      f"Total: ${booking.total_price} USD.", "success", "bookings")
         self._commit()
+        if booking.status == "Confirmada":
+            from .email_service import send_booking_email
+            send_booking_email("booking_confirmed", booking)
         return {"success": True, "message": f"¡Reserva {booking.booking_code} registrada con éxito!",
                 "booking": booking}
 
@@ -798,6 +806,8 @@ class DataStore:
                      f"La reserva {booking.booking_code} fue cancelada. Se han restaurado los cupos.",
                      "warning", "bookings")
         self._commit()
+        from .email_service import send_booking_email
+        send_booking_email("booking_cancelled", booking, reason=reason)
         return True
 
     # ------------------------------------------------------------------
@@ -879,6 +889,11 @@ class DataStore:
             self._rollback()
             return {"success": False,
                     "message": f"No se pudo registrar el pago: {exc}"}
+        from .email_service import send_booking_email
+        send_booking_email("payment_received", booking, payment=payment)
+        if (booking.status == "Confirmada"
+                and booking_before.get("status") != "Confirmada"):
+            send_booking_email("booking_confirmed", booking)
         return {"success": True,
                 "message": f"Pago de ${amount} USD registrado exitosamente. Recibo: {payment.receipt_number}",
                 "payment": payment}
@@ -895,6 +910,7 @@ class DataStore:
         before = audit.snapshot(payment)
         payment.status = "Completado"
         booking = self.get_booking(payment.booking_id)
+        previous_booking_status = booking.status if booking is not None else None
         if booking is not None and booking.status != "Cancelada":
             bookings_repo.apply_payment(booking, payment.amount)
             if booking.is_fully_paid():
@@ -903,6 +919,10 @@ class DataStore:
                      user=current_user,
                      details=f"Pago {payment.receipt_number} verificado (${payment.amount} USD).")
         self._commit()
+        if (booking is not None and booking.status == "Confirmada"
+                and previous_booking_status != "Confirmada"):
+            from .email_service import send_booking_email
+            send_booking_email("booking_confirmed", booking)
         return {"success": True, "message": "Pago verificado correctamente.", "payment": payment}
 
     # ------------------------------------------------------------------
@@ -993,11 +1013,15 @@ class DataStore:
         booking = self.get_booking(booking_id)
         if not booking:
             return {"success": False, "message": "Reserva no encontrada."}
+        previous_status = booking.status
         result = BookingService.transition(self, booking, status)
         if result["success"]:
             audit.record("ACTUALIZAR_ESTADO_RESERVA", "Reservas", booking, user=current_user,
                          details=f"Reserva ID: {booking_id} actualizada a estado: {status}")
             self._commit()
+            if booking.status == "Confirmada" and previous_status != "Confirmada":
+                from .email_service import send_booking_email
+                send_booking_email("booking_confirmed", booking)
         return result
 
     # ------------------------------------------------------------------
@@ -1243,6 +1267,7 @@ class DataStore:
             return {"success": False, "message": "Debe haber al menos un viajero."}
 
         before = audit.snapshot(booking)
+        previous_status = booking.status
 
         # Validar solapamiento de hotel con el nuevo número de habitaciones si cambia.
         if booking.hotel_id and ("check_in" in changes or "check_out" in changes or "rooms_count" in changes):
@@ -1297,6 +1322,9 @@ class DataStore:
         audit.record("ACTUALIZAR_RESERVA", "Reservas", booking, before=before, user=current_user,
                      details=f"Reserva {booking.booking_code} actualizada; total ${booking.total_price}.")
         self._commit()
+        if booking.status == "Confirmada" and previous_status != "Confirmada":
+            from .email_service import send_booking_email
+            send_booking_email("booking_confirmed", booking)
         return {"success": True, "message": "Reserva actualizada correctamente.", "booking": booking}
 
     # ------------------------------------------------------------------

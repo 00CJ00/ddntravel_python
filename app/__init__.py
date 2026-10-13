@@ -7,7 +7,7 @@ from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import INSTANCE_DIR, get_config, resolve_secret_key
-from .extensions import csrf, db, limiter, migrate
+from .extensions import csrf, db, limiter, mail, migrate
 
 
 def usd_filter(value):
@@ -74,6 +74,7 @@ def create_app(config_object=None):
     # dispersa por las rutas: se centraliza en DataStore._commit/_rollback.
     os.makedirs(INSTANCE_DIR, exist_ok=True)
     db.init_app(app)
+    mail.init_app(app)
     # render_as_batch=True: SQLite no soporta ALTER TABLE nativo para la mayoría
     # de cambios; el modo batch de Alembic los emula recreando la tabla. Se
     # necesita desde la primera migración para que las futuras (P3+) funcionen.

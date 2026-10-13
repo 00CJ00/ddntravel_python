@@ -94,6 +94,13 @@ habilitar Gemini u OAuth de Google, copia la plantilla con
 `Copy-Item .env.example .env` y completa únicamente las variables necesarias.
 No compartas ni subas `.env`.
 
+El correo SMTP es opcional. Para habilitar los emails transaccionales de
+reservas, pagos y cancelaciones, configura `MAIL_SERVER`, `MAIL_PORT`,
+`MAIL_USE_TLS` o `MAIL_USE_SSL`, y `MAIL_DEFAULT_SENDER`; `MAIL_USERNAME` y
+`MAIL_PASSWORD` se usan cuando el servidor los requiere. Sin servidor o
+remitente configurado, los eventos quedan registrados en el log y no se intenta
+conectar a SMTP.
+
 ## Primera ejecución
 
 Antes de iniciar el servidor por primera vez, crea el esquema SQLite y carga

@@ -120,9 +120,12 @@ def inject_globals():
             n for n in view.notifications
             if n.visible_roles is None or current_user.role in n.visible_roles
         ]
+        read_ids = store.notification_read_ids(current_user.id)
+        for notification in visible_notifs:
+            notification.read_for_current_user = notification.id in read_ids
     else:
         visible_notifs = []
-    unread = [n for n in visible_notifs if not n.read]
+    unread = [n for n in visible_notifs if not n.read_for_current_user]
     # Mapa permiso → bool para que el JS decida qué botones mostrar. Es la misma
     # matriz que aplica el servidor: solo oculta botones, nunca autoriza.
     client_permissions = {p: can(p, current_user) for p in PERMISSIONS}
@@ -830,14 +833,14 @@ def reset_data():
 @bp.route("/notifications/<int:notif_id>/read", methods=["POST"])
 @permission_required("notifications:read")
 def read_notification(notif_id):
-    store.mark_notification_as_read(notif_id)
+    store.mark_notification_as_read(get_current_user(), notif_id)
     return redirect_back("main.dashboard")
 
 
 @bp.route("/notifications/read-all", methods=["POST"])
 @permission_required("notifications:read")
 def read_all_notifications():
-    store.mark_all_notifications_as_read()
+    store.mark_all_notifications_as_read(get_current_user())
     return redirect_back("main.dashboard")
 
 
