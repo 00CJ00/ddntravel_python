@@ -21,6 +21,7 @@ from . import models as m
 from . import seed as seed_module
 from .extensions import db
 from .repositories import bookings as bookings_repo
+from .repositories import itinerary as itinerary_repo
 from .repositories import catalog, people
 from .repositories import documents as documents_repo
 from .repositories import notifications as notifications_repo
@@ -272,6 +273,53 @@ class DataStore:
                      entity_id=client_id, before=before, after=audit.snapshot(client),
                      user=current_user,
                      details=f"Eliminado cliente ID: {client_id} (baja lógica)")
+        self._commit()
+        return True
+
+    # ------------------------------------------------------------------
+    # Itinerarios (RF-10)
+    # ------------------------------------------------------------------
+    def save_itinerary(self, current_user, booking_id, content, source="ia") -> m.Itinerary:
+        booking = self.get_booking(booking_id)
+        if not booking:
+            return None
+        itinerary = itinerary_repo.create_itinerary({
+            "booking_id": booking.id, "client_id": booking.client_id,
+            "destination": booking.destination_name or "",
+            "days": len(content.get("days", [])), "source": source,
+            "content": content, "created_by": getattr(current_user, "id", None),
+        })
+        audit.record("CREAR_ITINERARIO", "Itinerarios", itinerary, user=current_user,
+                     details=f"Itinerario guardado para reserva {booking.booking_code} (source={source})")
+        self._commit()
+        return itinerary
+
+    def get_booking_itinerary(self, booking_id):
+        items = itinerary_repo.list_for_booking(booking_id)
+        return items[0] if items else None
+
+    def update_itinerary(self, current_user, itinerary_id, content):
+        itinerary = itinerary_repo.get_itinerary(itinerary_id)
+        if itinerary is None:
+            return None
+        before = audit.snapshot(itinerary)
+        itinerary.content = content
+        itinerary.days = len(content.get("days", []))
+        audit.record("EDITAR_ITINERARIO", "Itinerarios", itinerary, before=before,
+                     user=current_user,
+                     details=f"Itinerario {itinerary.id} actualizado")
+        self._commit()
+        return itinerary
+
+    def delete_itinerary(self, current_user, itinerary_id) -> bool:
+        itinerary = itinerary_repo.get_itinerary(itinerary_id)
+        if itinerary is None:
+            return False
+        before = audit.snapshot(itinerary)
+        itinerary_repo.delete_itinerary(itinerary)
+        audit.record("ELIMINAR_ITINERARIO", "Itinerarios", entity_type="Itinerary",
+                     entity_id=itinerary_id, before=before, user=current_user,
+                     details=f"Itinerario {itinerary_id} eliminado")
         self._commit()
         return True
 

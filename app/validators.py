@@ -124,6 +124,29 @@ def validate_room_count(
     return errors
 
 
+def validate_itinerary_content(content) -> list[str]:
+    """Valida el JSON de un itinerario (RF-10).
+
+    Estructura esperada: {"days": [{"dayNumber": int, "title": str, ...}, ...]}.
+    """
+    errors = []
+    if not isinstance(content, dict):
+        return ["El contenido del itinerario debe ser un objeto JSON."]
+    days = content.get("days")
+    if not isinstance(days, list) or not days:
+        errors.append("El itinerario debe tener al menos un día.")
+        return errors
+    for i, day in enumerate(days):
+        if not isinstance(day, dict):
+            errors.append(f"El día {i + 1} debe ser un objeto.")
+            continue
+        if not isinstance(day.get("dayNumber"), int):
+            errors.append(f"El día {i + 1} debe tener 'dayNumber' como entero.")
+        if not day.get("title"):
+            errors.append(f"El día {i + 1} debe tener 'title'.")
+    return errors
+
+
 # --- Catálogo (Fase P3) -------------------------------------------------
 # Reglas por recurso: campos requeridos, montos (>= 0) y enteros no negativos.
 CATALOG_RULES = {

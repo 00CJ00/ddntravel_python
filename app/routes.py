@@ -965,6 +965,82 @@ def new_booking():
     return redirect(url_for("main.bookings"))
 
 
+def _json_or_form():
+    """Acepta JSON (fetch) o form-data (formularios tradicionales).
+
+    Si es form-data, intenta parsear 'content' como JSON.
+    """
+    data = request.get_json(force=True, silent=True)
+    if data is not None:
+        return data
+    form = request.form
+    if "content" in form:
+        import json as _json
+        try:
+            return {"content": _json.loads(form["content"]), "source": form.get("source", "ia")}
+        except (ValueError, TypeError):
+            return form
+    return form
+
+
+@bp.route("/bookings/<int:booking_id>/itinerary", methods=["POST"])
+@permission_required("itineraries:create")
+def save_booking_itinerary(booking_id):
+    """Guarda un itinerario (generado por IA o manual) para una reserva."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    data = _json_or_form()
+    content = data.get("content", data)
+    from . import validators
+    errors = validators.validate_itinerary_content(content)
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
+    itinerary = store.save_itinerary(user, booking.id, content,
+                                     source=data.get("source", "ia"))
+    if itinerary is None:
+        return jsonify({"success": False, "error": "Reserva no encontrada"}), 404
+    return jsonify({"success": True, "id": itinerary.id})
+
+
+@bp.route("/bookings/<int:booking_id>/itinerary", methods=["GET"])
+@permission_required("itineraries:view")
+def get_booking_itinerary(booking_id):
+    """Obtiene el itinerario de una reserva (solo dueño o staff)."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    itinerary = store.get_booking_itinerary(booking.id)
+    if itinerary is None:
+        return jsonify({"success": False, "error": "Itinerario no encontrado"}), 404
+    return jsonify({"success": True, "content": itinerary.content, "source": itinerary.source})
+
+
+@bp.route("/itineraries/<int:itinerary_id>", methods=["PUT"])
+@permission_required("itineraries:edit")
+def update_itinerary(itinerary_id):
+    """Edita el contenido JSON de un itinerario (sobrescribe completo)."""
+    user = get_current_user()
+    data = _json_or_form()
+    content = data.get("content", data)
+    from . import validators
+    errors = validators.validate_itinerary_content(content)
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
+    itinerary = store.update_itinerary(user, itinerary_id, content)
+    if itinerary is None:
+        return jsonify({"success": False, "error": "Itinerario no encontrado"}), 404
+    return jsonify({"success": True})
+
+
+@bp.route("/itineraries/<int:itinerary_id>", methods=["DELETE"])
+@permission_required("itineraries:delete")
+def delete_itinerary(itinerary_id):
+    """Elimina un itinerario (solo admin)."""
+    user = get_current_user()
+    if not store.delete_itinerary(user, itinerary_id):
+        return jsonify({"success": False, "error": "Itinerario no encontrado"}), 404
+    return jsonify({"success": True})
+
+
 @bp.route("/bookings/<int:booking_id>/cancel", methods=["POST"])
 @permission_required("bookings:cancel")
 def cancel_booking(booking_id):

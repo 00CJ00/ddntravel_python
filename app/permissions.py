@@ -115,6 +115,12 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "ai:recommend": frozenset({"admin", "employee", "client"}),
     "ai:itinerary": frozenset({"admin", "employee", "client"}),
 
+    # --- Itinerarios (RF-10) ---
+    "itineraries:view": frozenset({"admin", "employee", "client"}),
+    "itineraries:create": frozenset({"admin", "employee", "client"}),
+    "itineraries:edit": frozenset({"admin", "employee", "client"}),
+    "itineraries:delete": frozenset({"admin"}),
+
     # --- Portal y varios ---
     "portal:view": frozenset({"client"}),
     "theme:set": frozenset({"admin", "employee", "client"}),
