@@ -80,10 +80,12 @@ def generate_gemini_json(prompt: str, fallback_fn):
 # 1. Estadísticas predictivas de comportamiento de compra (RF-20)
 # ----------------------------------------------------------------------
 def get_predictive_analytics(clients: list, bookings: list, packages: list, timeframe: str) -> dict:
+    # Privacidad (RF-20): NO enviar nombres reales a Gemini. Se usan alias
+    # secuenciales ("Cliente A", "Cliente B"...) y solo datos agregados.
     clients_summary = [
-        {"name": c.name, "category": c.category, "budget": c.budget_preference,
+        {"name": f"Cliente {chr(65 + i)}", "category": c.category, "budget": c.budget_preference,
          "tripsCount": c.trips_count, "preferredDestinations": getattr(c, "preferred_destinations", [])}
-        for c in clients[:10]
+        for i, c in enumerate(clients[:10])
     ]
     bookings_summary = [
         {"destination": b.destination_name, "total": float(b.total_price or 0), "status": b.status,
@@ -199,7 +201,7 @@ Actúa como el motor de recomendación inteligente de DDN TRAVEL.
 Recomienda los mejores paquetes y destinos personalizados para el siguiente perfil de viajero:
 
 Perfil:
-- Nombre / Tipo: {client_profile.get('name', 'Cliente interesado')}
+- Nombre / Tipo: Cliente A (alias — no se envían nombres reales a Gemini)
 - Presupuesto aproximado: ${budget or 2000} USD
 - Estilo de viaje: {travel_style or 'Playa y Relajación'}
 - Número de viajeros: {travelers_count or 2}
