@@ -28,6 +28,13 @@ def get_document(ident):
     return get(m.TravelDocument, ident)
 
 
+def get_booking_voucher(booking_id):
+    return (m.TravelDocument.query
+            .filter_by(booking_id=booking_id, doc_type="Voucher de Reserva")
+            .order_by(m.TravelDocument.id.asc())
+            .first())
+
+
 def create_document(data):
     doc = m.TravelDocument()
     assign_by_type(doc, data, skip=("id",))
@@ -64,6 +71,17 @@ def save_file(file_storage, stored_name: str) -> str:
     path = os.path.join(upload_dir, stored_name)
     file_storage.save(path)
     return path
+
+
+def save_pdf_bytes(pdf_bytes: bytes) -> str:
+    """Guarda bytes PDF en UPLOAD_DIR y devuelve el nombre UUID del archivo."""
+    upload_dir = current_app.config.get("UPLOAD_DIR", "instance/uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}.pdf"
+    path = os.path.join(upload_dir, stored_name)
+    with open(path, "xb") as pdf_file:
+        pdf_file.write(pdf_bytes)
+    return stored_name
 
 
 def upload_document_file(file_storage) -> tuple[str, str, str, int]:

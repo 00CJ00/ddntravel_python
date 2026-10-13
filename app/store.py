@@ -726,6 +726,20 @@ class DataStore:
             if client is not None:
                 people.register_trip(client, total_price)
 
+            voucher = documents_repo.create_document({
+                "client_id": booking.client_id,
+                "booking_id": booking.id,
+                "doc_type": "Voucher de Reserva",
+                "file_name": f"Voucher_Oficial_{booking.booking_code}.pdf",
+                "mime": "application/pdf",
+                "status": "Pendiente",
+                "upload_date": _today(),
+                "uploaded_by": coerce_id(current_user.id),
+            })
+            audit.record("CREAR_VOUCHER_PENDIENTE", "Documentos", voucher,
+                         user=current_user,
+                         details=f"Voucher pendiente para reserva {booking.booking_code}.")
+
             if initial_payment > 0:
                 pay_status = "Completado" if payment_method in ("Tarjeta de Crédito", "PayPal") \
                     else "Pendiente_verificacion"
@@ -842,13 +856,6 @@ class DataStore:
                 BookingService.transition(self, booking, "Confirmada")
             elif pay_status != "Completado" and booking.amount_paid == 0:
                 booking.payment_status = "Pendiente_verificacion"
-
-            if pay_status == "Completado" and booking.is_fully_paid():
-                documents_repo.create_document({
-                    "client_id": booking.client_id, "doc_type": "Voucher de Reserva",
-                    "file_name": f"Voucher_Oficial_{booking.booking_code}.pdf", "status": "Válido",
-                    "upload_date": _today(),
-                })
 
             audit.record("PAGO_REGISTRADO", "Pagos & Facturación", payment, user=current_user,
                          details=f"Registrado pago de ${amount} USD para reserva {booking.booking_code} "
@@ -1056,6 +1063,45 @@ class DataStore:
                      details=f"Archivo {original} ({size} bytes) subido para cliente {client_id}")
         self._commit()
         return {"success": True, "id": doc.id, "file_name": original}
+
+    def generate_booking_voucher(self, booking) -> bool:
+        """Actualiza el voucher pendiente; la generación no bloquea la confirmación."""
+        doc = documents_repo.get_booking_voucher(booking.id)
+        if doc is None:
+            current_app.logger.error(
+                "No se encontró el voucher pendiente de la reserva ID %s.", booking.id)
+            return False
+
+        upload_dir = current_app.config.get("UPLOAD_DIR", "instance/uploads")
+        existing_path = os.path.join(upload_dir, doc.stored_name or "")
+        if (doc.status == "Válido" and doc.stored_name
+                and os.path.isfile(existing_path)):
+            return True
+
+        before = audit.snapshot(doc)
+        doc.status = "Pendiente"
+        try:
+            from .billing import generar_pdf_voucher
+
+            client = people.get_client(booking.client_id)
+            pdf_bytes = generar_pdf_voucher(booking, client)
+            if not pdf_bytes.startswith(b"%PDF"):
+                raise ValueError("El generador devolvió un archivo que no es PDF.")
+            stored_name = documents_repo.save_pdf_bytes(pdf_bytes)
+        except Exception:
+            current_app.logger.exception(
+                "No se pudo generar el voucher PDF de la reserva ID %s.", booking.id)
+            return False
+
+        doc.file_name = f"Voucher_Oficial_{booking.booking_code}.pdf"
+        doc.stored_name = stored_name
+        doc.mime = "application/pdf"
+        doc.size_bytes = len(pdf_bytes)
+        doc.status = "Válido"
+        doc.upload_date = datetime.date.today()
+        audit.record("GENERAR_VOUCHER", "Documentos", doc, before=before,
+                     details=f"Voucher generado para reserva {booking.booking_code}.")
+        return True
 
     def get_document_for_download(self, current_user, doc_id):
         """Devuelve (doc, path) si el usuario tiene permiso, o None."""
@@ -1387,6 +1433,9 @@ class BookingService:
         # Consistencia: totalmente pagada y no cancelada ⇒ Confirmada.
         if nuevo_estado != "Cancelada" and booking.is_fully_paid() and booking.status != "Confirmada":
             booking.status = "Confirmada"
+
+        if booking.status == "Confirmada":
+            store.generate_booking_voucher(booking)
 
         return {"success": True,
                 "message": f"Transición '{old_status}' -> '{booking.status}' realizada con éxito."}
