@@ -191,6 +191,28 @@ válido, B04 notas de crédito) y factura PDF descargable.
 > No constituye facturación fiscal real. Los datos del emisor se configuran
 > con `AGENCY_RNC`, `AGENCY_NAME`, `AGENCY_ADDRESS` y `AGENCY_PHONE`.
 
+## Itinerarios, documentos, alertas e IA (fase P6)
+
+- **Itinerarios (RF-10):** además de `POST /api/ai/generate-itinerary`, cada
+  reserva guarda el suyo en `POST|GET|PUT|DELETE /bookings/<id>/itinerary`
+  (el cliente solo el propio; eliminar solo admin).
+- **Documentos (RF-17):** `POST /documents/upload` acepta `pdf/jpg/png` de
+  hasta 5 MB con firma verificada y los guarda con nombre UUID en
+  `UPLOAD_DIR` (fuera de `static/`); `GET /documents/<id>/download` exige
+  propiedad (ajeno → 403); eliminar solo admin. Al confirmarse una reserva
+  se genera su voucher PDF automáticamente (idempotente).
+- **Notificaciones (RF-13):** lectura por usuario (`NotificationRead`);
+  eventos de reserva confirmada, pago recibido y reserva cancelada, con
+  correo vía `MAIL_*` o respaldo de consola/log (un fallo de correo nunca
+  rompe la operación).
+- **Alertas:** `flask alerts run` detecta pasaportes por vencer, saldos con
+  salida ≤ 15 días, paquetes con ≤ 20 % de cupos y pendientes sin pago por
+  más de 72 h (idempotente; programadas a diario solo con
+  `ENABLE_SCHEDULER=1`).
+- **IA (RF-20):** Gemini opcional con respaldo por reglas; a Gemini solo
+  viajan alias (`Cliente A`), categorías y agregados — nunca nombres,
+  emails ni documentos. El chat responde por palabras completas.
+
 ## Usuarios de demostración
 
 La app muestra una pantalla de login. La contraseña de las 3 cuentas demo es `ddn123`:

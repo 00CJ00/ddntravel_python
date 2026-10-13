@@ -41,5 +41,11 @@ class TravelDocument(BaseEntity, db.Model):
         """Alias de compatibilidad con el antiguo campo de texto."""
         return _human_size(self.size_bytes)
 
+    @property
+    def expiry_status(self) -> str:
+        """Estado de vencimiento calculado (`vigente`/`por vencer`/`vencido`)."""
+        from ..documents import expiry_status as _status
+        return _status(self.expiry_date)
+
     def describe(self) -> str:
         return self.file_name or self.doc_type or "Documento"

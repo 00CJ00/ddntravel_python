@@ -72,3 +72,19 @@ def backup_command(backup_dir, keep, restore_file) -> None:
             click.echo(f"Respaldo creado: {destino}")
     except BackupError as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+@click.group("alerts")
+def alerts_group() -> None:
+    """Alertas automáticas de la agencia (fase P6)."""
+
+
+@alerts_group.command("run")
+@with_appcontext
+def alerts_run() -> None:
+    """Detecta y registra las alertas (idempotente: repetir no duplica)."""
+    from . import alerts as alerts_module
+    from .store import store
+    counts = alerts_module.run_alerts(store)
+    click.echo(f"Alertas: {counts['created']} creadas, "
+               f"{counts['skipped']} omitidas ({counts['total']} detectadas).")

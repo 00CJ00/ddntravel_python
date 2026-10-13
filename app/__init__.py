@@ -7,7 +7,7 @@ from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import INSTANCE_DIR, get_config, resolve_secret_key
-from .extensions import csrf, db, limiter, migrate
+from .extensions import csrf, db, limiter, mail, migrate
 
 
 def usd_filter(value):
@@ -87,6 +87,9 @@ def create_app(config_object=None):
     # --- Rate limiting por IP (anti fuerza bruta y anti abuso) ---
     limiter.init_app(app)
 
+    # --- Correo (RF-13, fase P6): inofensivo sin configuración MAIL_* ---
+    mail.init_app(app)
+
     from . import permissions
     # `can(permiso)` en las plantillas oculta botones que el usuario no puede
     # usar. La validación real siempre ocurre en la ruta (permission_required).
@@ -113,8 +116,13 @@ def create_app(config_object=None):
 
     # --- Comandos de la CLI (``flask seed``, ``flask backup``; ``flask db ...`` ---
     # lo aporta Flask-Migrate) ---
-    from .cli import backup_command, seed_command
+    from .cli import alerts_group, backup_command, seed_command
     app.cli.add_command(seed_command)
     app.cli.add_command(backup_command)
+    app.cli.add_command(alerts_group)
+
+    # --- Alertas programadas (fase P6): solo con ENABLE_SCHEDULER=1 ---
+    from .scheduler import start_scheduler_if_enabled
+    start_scheduler_if_enabled(app)
 
     return app

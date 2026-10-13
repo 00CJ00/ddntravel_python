@@ -12,6 +12,7 @@ datos y cada mutación se confirma contra la sesión de SQLAlchemy.
 from __future__ import annotations
 
 import datetime
+import os
 
 from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +24,7 @@ from .extensions import db
 from .repositories import bookings as bookings_repo
 from .repositories import catalog, people
 from .repositories import documents as documents_repo
+from .repositories import itineraries as itineraries_repo
 from .repositories import notifications as notifications_repo
 from .repositories import payments as payments_repo
 from .repositories import promotions as promotions_repo
@@ -196,6 +198,9 @@ class DataStore:
     def get_payment(self, payment_id):
         return payments_repo.get_payment(payment_id)
 
+    def get_document(self, doc_id):
+        return documents_repo.get_document(doc_id)
+
     # ------------------------------------------------------------------
     # Auditoría y notificaciones (RN-05)
     # ------------------------------------------------------------------
@@ -212,28 +217,131 @@ class DataStore:
                           details=details)
 
     def _notify(self, title, message, ntype="info", link_tab=None,
-                roles=None, visible_roles=None) -> None:
-        """Encola una notificación en la transacción actual (no confirma)."""
+                roles=None, visible_roles=None, event_key=None) -> bool:
+        """Encola una notificación en la transacción actual (no confirma).
+
+        Con ``event_key``, si ya existe una notificación con esa clave no se
+        crea otra (idempotencia ante eventos reprocesados). Devuelve si la
+        creó (``True``) o la omitió por duplicada (``False``).
+        """
         if visible_roles is not None:
             roles = visible_roles
         if roles is None:
             roles = ["admin", "employee"] if link_tab in INTERNAL_NOTIFICATION_TABS else None
+        if event_key is not None and notifications_repo.get_by_event_key(event_key) is not None:
+            return False
         notifications_repo.create_notification(
-            title, message, ntype=ntype, link_tab=link_tab, visible_roles=roles)
+            title, message, ntype=ntype, link_tab=link_tab, visible_roles=roles,
+            event_key=event_key)
+        return True
 
     def add_notification(self, title, message, ntype="info", link_tab=None,
-                         roles=None, visible_roles=None) -> None:
-        self._notify(title, message, ntype, link_tab, roles, visible_roles)
+                         roles=None, visible_roles=None, event_key=None) -> bool:
+        created = self._notify(title, message, ntype, link_tab, roles, visible_roles, event_key)
         self._commit()
+        return created
 
-    def mark_notification_as_read(self, notif_id) -> None:
-        notification = notifications_repo.get_notification(notif_id)
-        if notification is not None:
-            notifications_repo.mark_read(notification)
+    @staticmethod
+    def _client_email_of(booking):
+        """Email del cliente de una reserva (solo para su propio aviso)."""
+        from .repositories import people as people_repo
+        client = people_repo.get_client(getattr(booking, "client_id", None))
+        email = (getattr(client, "email", "") or "").strip()
+        return email or None
+
+    def _announce_booking_confirmed(self, booking, user=None) -> None:
+        """Aviso de reserva confirmada: notificación con clave + correo.
+
+        Post-commit e idempotente (la clave evita duplicados ante eventos
+        reprocesados). El correo nunca lanza ni confirma transacciones.
+        """
+        if booking is None or getattr(booking, "status", None) != "Confirmada":
+            return
+        key = f"booking-confirmed:{booking.id}"
+        if notifications_repo.get_by_event_key(key) is None:
+            self._notify("Reserva Confirmada",
+                         f"La reserva {booking.booking_code} "
+                         f"({booking.destination_name}) está confirmada.",
+                         "success", "bookings", event_key=key)
             self._commit()
+        email = self._client_email_of(booking)
+        if email:
+            try:
+                from .notify import send_event_mail
+                send_event_mail("booking_confirmed", email, {
+                    "booking_code": booking.booking_code,
+                    "destination": booking.destination_name or "",
+                    "total": float(booking.total_price or 0),
+                })
+            except Exception:  # noqa: BLE001 - el correo nunca rompe el flujo
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Fallo de correo ignorado (confirmación %s)", booking.booking_code)
 
-    def mark_all_notifications_as_read(self) -> None:
-        notifications_repo.mark_all_read()
+    def _announce_payment_received(self, booking, payment) -> None:
+        """Correo de pago recibido al cliente (post-commit, nunca falla)."""
+        email = self._client_email_of(booking)
+        if not email:
+            return
+        try:
+            from .notify import send_event_mail
+            send_event_mail("payment_received", email, {
+                "booking_code": booking.booking_code,
+                "destination": booking.destination_name or "",
+                "amount": float(payment.amount or 0),
+                "receipt": payment.receipt_number or "",
+            })
+        except Exception:  # noqa: BLE001 - el correo nunca rompe el flujo
+            import logging
+            logging.getLogger(__name__).warning(
+                "Fallo de correo ignorado (pago %s)", payment.receipt_number)
+
+    def _announce_booking_cancelled(self, booking, reason="") -> None:
+        """Correo de cancelación al cliente (post-commit, nunca falla)."""
+        email = self._client_email_of(booking)
+        if not email:
+            return
+        try:
+            from .notify import send_event_mail
+            send_event_mail("booking_cancelled", email, {
+                "booking_code": booking.booking_code,
+                "destination": booking.destination_name or "",
+                "reason": reason or "no indicado",
+            })
+        except Exception:  # noqa: BLE001 - el correo nunca rompe el flujo
+            import logging
+            logging.getLogger(__name__).warning(
+                "Fallo de correo ignorado (cancelación %s)", booking.booking_code)
+
+    def notification_read_by(self, user, notification) -> bool:
+        """Indica si el usuario ya leyó la notificación (lectura por usuario).
+
+        La fila global ``read`` se conserva por compatibilidad y cuenta como
+        leída para todos; las marcas nuevas son por usuario y no afectan a
+        los demás.
+        """
+        if notification is None or user is None:
+            return False
+        if getattr(notification, "read", False):
+            return True
+        return notifications_repo.get_read(notification.id, coerce_id(user.id)) is not None
+
+    def mark_notification_as_read(self, user, notif_id) -> bool:
+        """Marca como leída solo para ese usuario. Devuelve si existe."""
+        notification = notifications_repo.get_notification(notif_id)
+        if notification is None:
+            return False
+        notifications_repo.mark_read_by(notification, coerce_id(user.id))
+        self._commit()
+        return True
+
+    def mark_all_notifications_as_read(self, user=None) -> None:
+        """Marca como leídas (por usuario si se indica; global si no)."""
+        if user is None:
+            notifications_repo.mark_all_read()
+        else:
+            for notification in notifications_repo.list_notifications():
+                notifications_repo.mark_read_by(notification, coerce_id(user.id))
         self._commit()
 
     # ------------------------------------------------------------------
@@ -707,6 +815,8 @@ class DataStore:
                      f"Reserva {booking.booking_code} generada para {client_name}. "
                      f"Total: ${booking.total_price} USD.", "success", "bookings")
         self._commit()
+        self.ensure_voucher_pdf(booking, current_user)
+        self._announce_booking_confirmed(booking, current_user)
         return {"success": True, "message": f"¡Reserva {booking.booking_code} registrada con éxito!",
                 "booking": booking}
 
@@ -732,8 +842,9 @@ class DataStore:
                      details=f"Reserva {booking.booking_code} cancelada. Motivo: {reason or 'N/A'}")
         self._notify("Reserva Cancelada",
                      f"La reserva {booking.booking_code} fue cancelada. Se han restaurado los cupos.",
-                     "warning", "bookings")
+                     "warning", "bookings", event_key=f"booking-cancelled:{booking.id}")
         self._commit()
+        self._announce_booking_cancelled(booking, reason)
         return True
 
     # ------------------------------------------------------------------
@@ -793,13 +904,6 @@ class DataStore:
             elif pay_status != "Completado" and booking.amount_paid == 0:
                 booking.payment_status = "Pendiente_verificacion"
 
-            if pay_status == "Completado" and booking.is_fully_paid():
-                documents_repo.create_document({
-                    "client_id": booking.client_id, "doc_type": "Voucher de Reserva",
-                    "file_name": f"Voucher_Oficial_{booking.booking_code}.pdf", "status": "Válido",
-                    "upload_date": _today(),
-                })
-
             audit.record("PAGO_REGISTRADO", "Pagos & Facturación", payment, user=current_user,
                          details=f"Registrado pago de ${amount} USD para reserva {booking.booking_code} "
                                  f"mediante {method}. Factura: {payment.invoice_number}")
@@ -809,7 +913,7 @@ class DataStore:
                                  f"${booking.amount_paid} USD ({booking.payment_status}).")
             self._notify("Pago Recibido",
                          f"Se registró pago de ${amount} USD para la reserva {booking.booking_code}.",
-                         "success", "payments")
+                         "success", "payments", event_key=f"payment-received:{payment.id}")
             self._commit()
         except IntegrityError:
             self._rollback()
@@ -822,6 +926,10 @@ class DataStore:
             self._rollback()
             return {"success": False,
                     "message": f"No se pudo registrar el pago: {exc}"}
+        # Voucher real post-commit: nunca revierte ni rompe el pago ya válido.
+        self.ensure_voucher_pdf(booking, current_user)
+        self._announce_payment_received(booking, payment)
+        self._announce_booking_confirmed(booking, current_user)
         return {"success": True,
                 "message": f"Pago de ${amount} USD registrado exitosamente. Recibo: {payment.receipt_number}",
                 "payment": payment}
@@ -846,6 +954,9 @@ class DataStore:
                      user=current_user,
                      details=f"Pago {payment.receipt_number} verificado (${payment.amount} USD).")
         self._commit()
+        if booking is not None:
+            self.ensure_voucher_pdf(booking, current_user)
+            self._announce_booking_confirmed(booking, current_user)
         return {"success": True, "message": "Pago verificado correctamente.", "payment": payment}
 
     # ------------------------------------------------------------------
@@ -941,7 +1052,40 @@ class DataStore:
             audit.record("ACTUALIZAR_ESTADO_RESERVA", "Reservas", booking, user=current_user,
                          details=f"Reserva ID: {booking_id} actualizada a estado: {status}")
             self._commit()
+            self.ensure_voucher_pdf(booking, current_user)
+            self._announce_booking_confirmed(booking, current_user)
         return result
+
+    # ------------------------------------------------------------------
+    # Itinerarios (RF-10, fase P6)
+    # ------------------------------------------------------------------
+    def get_itinerary(self, booking_id):
+        """Devuelve el itinerario vigente de una reserva o ``None``."""
+        return itineraries_repo.get_by_booking(coerce_id(booking_id))
+
+    def save_itinerary(self, current_user, booking, content: dict,
+                       source: str = "manual"):
+        """Crea o actualiza el itinerario de una reserva (con auditoría)."""
+        before = None
+        existing = itineraries_repo.get_by_booking(booking.id)
+        if existing is not None:
+            before = audit.snapshot(existing)
+        itinerary = itineraries_repo.save_itinerary(booking, content, source, current_user)
+        action = "EDITAR_ITINERARIO" if before is not None else "CREAR_ITINERARIO"
+        audit.record(action, "Reservas", itinerary, before=before, user=current_user,
+                     details=f"Itinerario de la reserva {booking.booking_code} guardado "
+                             f"({source}).")
+        self._commit()
+        return itinerary
+
+    def delete_itinerary(self, current_user, itinerary) -> None:
+        """Elimina el itinerario de una reserva (solo admin en rutas)."""
+        before = audit.snapshot(itinerary)
+        itineraries_repo.delete_itinerary(itinerary)
+        audit.record("ELIMINAR_ITINERARIO", "Reservas", entity_type="Itinerary",
+                     entity_id=itinerary.id, before=before, user=current_user,
+                     details=f"Itinerario {itinerary.id} eliminado.")
+        self._commit()
 
     # ------------------------------------------------------------------
     # Promociones (RF-12)
@@ -989,6 +1133,45 @@ class DataStore:
         self._commit()
         return doc
 
+    def upload_document(self, current_user, client, file_storage, *,
+                        doc_type: str = "Documento", expiry_date=None,
+                        booking_id=None) -> m.TravelDocument:
+        """Valida, guarda en disco y registra un archivo subido (RF-17).
+
+        Si el disco falla no se crea ninguna fila; si la BD falla tras
+        guardar, se borra el archivo para no dejar huérfanos.
+        """
+        from flask import current_app
+
+        from .documents import DocumentError, save_uploaded_file
+        upload_dir = current_app.config["UPLOAD_DIR"]
+        max_bytes = current_app.config["MAX_CONTENT_LENGTH"]
+        stored = save_uploaded_file(file_storage, upload_dir, max_bytes)
+        try:
+            doc = documents_repo.create_document({
+                "client_id": client.id,
+                "booking_id": booking_id,
+                "doc_type": doc_type,
+                "file_name": stored["file_name"],
+                "stored_name": stored["stored_name"],
+                "mime": stored["mime"],
+                "size_bytes": stored["size_bytes"],
+                "expiry_date": expiry_date,
+                "status": "Válido",
+                "upload_date": _today(),
+                "uploaded_by": coerce_id(current_user.id),
+            })
+            audit.record("SUBIR_DOCUMENTO", "Documentos", doc, user=current_user,
+                         details=f"Cargado archivo {doc.file_name} ({doc.doc_type}) "
+                                 f"para cliente {client.id}")
+            self._commit()
+        except Exception:
+            from .documents import delete_stored_file
+            delete_stored_file(upload_dir, stored["stored_name"])
+            self._rollback()
+            raise
+        return doc
+
     def delete_document(self, current_user, doc_id) -> bool:
         # RN-04 / matriz de permisos: solo admin elimina (PDF-01/pdfs…). Refuerzo
         # de defensa en profundidad, vía de por sí ya está acotada a admin.
@@ -998,12 +1181,110 @@ class DataStore:
         if doc is None:
             return False
         before = audit.snapshot(doc)
+        stored_name = getattr(doc, "stored_name", None)
         documents_repo.delete_document(doc)
         audit.record("ELIMINAR_DOCUMENTO", "Documentos", entity_type="TravelDocument",
                      entity_id=doc_id, before=before, user=current_user,
                      details=f"Documento ID: {doc_id} eliminado.")
         self._commit()
+        if stored_name:
+            from flask import current_app
+
+            from .documents import delete_stored_file
+            try:
+                upload_dir = current_app.config["UPLOAD_DIR"]
+            except RuntimeError:
+                upload_dir = None
+            if upload_dir and not delete_stored_file(upload_dir, stored_name):
+                import logging
+                logging.getLogger(__name__).warning(
+                    "No se pudo borrar el archivo del documento %s", doc_id)
         return True
+
+    def ensure_voucher_pdf(self, booking, user=None):
+        """Genera el voucher PDF de una reserva confirmada (idempotente).
+
+        Se llama DESPUÉS del commit de la confirmación: un fallo aquí nunca
+        revierte ni corrompe la transacción principal (se registra y se
+        devuelve ``None``). Repetir la llamada no duplica documentos: si ya
+        existe voucher con archivo en disco, lo devuelve tal cual; si existe
+        la fila heredada sin archivo (voucher P4 solo-metadatos), la adopta.
+        Nunca lanza excepciones.
+        """
+        import logging
+
+        from flask import current_app
+
+        from .documents import DocumentError, generar_pdf_voucher, store_bytes
+        try:
+            if booking is None or getattr(booking, "status", None) != "Confirmada":
+                return None
+            try:
+                upload_dir = current_app.config["UPLOAD_DIR"]
+            except RuntimeError:
+                return None
+            canonical = f"Voucher_Oficial_{booking.booking_code}.pdf"
+            existing = next(
+                (d for d in documents_repo.list_documents()
+                 if getattr(d, "booking_id", None) == booking.id
+                 and (d.doc_type or "") == "Voucher de Reserva"), None)
+            if existing is None:
+                existing = next(
+                    (d for d in documents_repo.list_documents()
+                     if (d.file_name or "") == canonical), None)
+            if existing is not None and getattr(existing, "stored_name", None):
+                if os.path.isfile(os.path.join(
+                        upload_dir, os.path.basename(existing.stored_name))):
+                    return existing
+            client = people.get_client(booking.client_id)
+            pdf = generar_pdf_voucher(
+                booking, client.name if client is not None else booking.client_name)
+            stored = store_bytes(pdf, "pdf", upload_dir, canonical)
+            if existing is not None:
+                existing.stored_name = stored["stored_name"]
+                existing.mime = stored["mime"]
+                existing.size_bytes = stored["size_bytes"]
+                existing.file_name = canonical
+                if not getattr(existing, "booking_id", None):
+                    existing.booking_id = booking.id
+                doc = existing
+                action, before = "EDITAR_DOCUMENTO", audit.snapshot(existing)
+            else:
+                before = None
+                doc = documents_repo.create_document({
+                    "client_id": booking.client_id,
+                    "booking_id": booking.id,
+                    "doc_type": "Voucher de Reserva",
+                    "file_name": canonical,
+                    "stored_name": stored["stored_name"],
+                    "mime": stored["mime"],
+                    "size_bytes": stored["size_bytes"],
+                    "status": "Válido",
+                    "upload_date": _today(),
+                    "uploaded_by": coerce_id(getattr(user, "id", None)),
+                })
+                action = "SUBIR_DOCUMENTO"
+            audit.record(action, "Documentos", doc, before=before, user=user,
+                         details=f"Voucher PDF generado para la reserva "
+                                 f"{booking.booking_code}.")
+            self._commit()
+            return doc
+        except Exception as exc:  # noqa: BLE001 - el voucher nunca rompe el flujo
+            try:
+                self._rollback()
+            except Exception:
+                pass
+            logging.getLogger(__name__).warning(
+                "No se pudo generar el voucher de la reserva %s: %s",
+                getattr(booking, "booking_code", "?"), exc)
+            try:
+                audit.record("VOUCHER_FALLIDO", "Documentos", user=user,
+                             details=f"No se pudo generar el voucher de la reserva "
+                                     f"{getattr(booking, 'booking_code', '?')}: {exc}")
+                self._commit()
+            except Exception:
+                pass
+            return None
 
     # ------------------------------------------------------------------
     # Usuarios / sesión de Google
@@ -1164,6 +1445,7 @@ class DataStore:
         audit.record("ACTUALIZAR_RESERVA", "Reservas", booking, before=before, user=current_user,
                      details=f"Reserva {booking.booking_code} actualizada; total ${booking.total_price}.")
         self._commit()
+        self.ensure_voucher_pdf(booking, current_user)
         return {"success": True, "message": "Reserva actualizada correctamente.", "booking": booking}
 
     # ------------------------------------------------------------------

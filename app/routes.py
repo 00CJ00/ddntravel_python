@@ -122,7 +122,8 @@ def inject_globals():
         ]
     else:
         visible_notifs = []
-    unread = [n for n in visible_notifs if not n.read]
+    unread = [n for n in visible_notifs
+            if not store.notification_read_by(current_user, n)]
     # Mapa permiso → bool para que el JS decida qué botones mostrar. Es la misma
     # matriz que aplica el servidor: solo oculta botones, nunca autoriza.
     client_permissions = {p: can(p, current_user) for p in PERMISSIONS}
@@ -830,14 +831,14 @@ def reset_data():
 @bp.route("/notifications/<int:notif_id>/read", methods=["POST"])
 @permission_required("notifications:read")
 def read_notification(notif_id):
-    store.mark_notification_as_read(notif_id)
+    store.mark_notification_as_read(get_current_user(), notif_id)
     return redirect_back("main.dashboard")
 
 
 @bp.route("/notifications/read-all", methods=["POST"])
 @permission_required("notifications:read")
 def read_all_notifications():
-    store.mark_all_notifications_as_read()
+    store.mark_all_notifications_as_read(get_current_user())
     return redirect_back("main.dashboard")
 
 
@@ -1107,6 +1108,76 @@ def delete_document(doc_id):
 
 
 # ----------------------------------------------------------------------
+# Documentos con archivo (RF-17, fase P6): subida y descarga segura
+# ----------------------------------------------------------------------
+@bp.route("/documents/upload", methods=["POST"])
+@permission_required("documents:create")
+def upload_document():
+    """Sube un archivo (pdf/jpg/png ≤ 5 MB, firma verificada) a un expediente."""
+    from .documents import DocumentError
+    user = get_current_user()
+    # Un cliente sube a su propio expediente; el booking, si se indica, debe
+    # ser suyo (se verifica, nunca se confía en el formulario).
+    booking = None
+    if user.role == "client":
+        client = client_record(user)
+        if client is None:
+            return jsonify({"success": False,
+                            "error": "Sin perfil de cliente asociado."}), 422
+        if request.form.get("booking_id"):
+            booking = owned_or_404(user, store.get_booking(request.form.get("booking_id")))
+            client = store.get_client(booking.client_id) or client
+    else:
+        client = store.get_client(request.form.get("client_id", ""))
+        if request.form.get("booking_id"):
+            booking = store.get_booking(request.form.get("booking_id"))
+        if client is None:
+            return jsonify({"success": False,
+                            "error": "Selecciona un cliente válido."}), 422
+    file = request.files.get("file")
+    if file is None or not (file.filename or "").strip():
+        return jsonify({"success": False, "error": "Adjunta un archivo."}), 422
+    try:
+        doc = store.upload_document(
+            user, client, file,
+            doc_type=request.form.get("doc_type", "Documento") or "Documento",
+            expiry_date=request.form.get("expiry_date") or None,
+            booking_id=booking.id if booking else None)
+    except DocumentError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 422
+    return jsonify({"success": True, "id": doc.id, "file_name": doc.file_name}), 201
+
+
+@bp.route("/documents/<int:doc_id>/download", methods=["GET"])
+@permission_required("documents:view")
+def download_document(doc_id):
+    """Descarga el archivo de un documento propio (o de personal interno).
+
+    Desviación deliberada de `owned_or_404`: la especificación RF-17 exige
+    403 para el cliente no propietario (no 404).
+    """
+    from flask import current_app
+    user = get_current_user()
+    doc = store.get_document(doc_id)
+    if doc is None:
+        abort(404)
+    allowed = owns(user, doc)
+    if not allowed and getattr(doc, "booking_id", None):
+        booking = store.get_booking(doc.booking_id)
+        allowed = booking is not None and owns(user, booking)
+    if not allowed:
+        abort(403)
+    if not getattr(doc, "stored_name", None):
+        abort(404)
+    path = os.path.join(current_app.config["UPLOAD_DIR"],
+                        os.path.basename(doc.stored_name))
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype=doc.mime or "application/octet-stream",
+                     as_attachment=True, download_name=doc.file_name or doc.stored_name)
+
+
+# ----------------------------------------------------------------------
 # API de Inteligencia Artificial (RF-20) — igual que server.ts
 # ----------------------------------------------------------------------
 @bp.route("/api/ai/predictive-analytics", methods=["POST"])
@@ -1125,10 +1196,17 @@ def api_predictive_analytics():
 @limiter.limit(lambda: current_app.config["AI_GENERATIVE_RATE_LIMIT"])
 def api_recommendations():
     data = request.get_json(force=True, silent=True) or {}
+    signals = ai_service.aggregate_signals(store.clients, store.bookings)
     result = ai_service.get_recommendations(
         data.get("clientProfile", {}) or {}, data.get("budget", 2500), data.get("travelStyle", ""),
-        data.get("travelersCount", 2), data.get("interests", ""),
+        data.get("travelersCount", 2), data.get("interests", ""), context=signals,
     )
+    user = get_current_user()
+    store.log_action(user.id, user.name, "CONSULTA_IA_RECOMENDACIONES", "Motor IA",
+                     f"Recomendaciones vía {ai_service.last_provider} "
+                     f"({ai_service.last_used_model or 'respaldo'}); "
+                     f"presupuesto ${data.get('budget', 2500)} USD, "
+                     f"{data.get('travelersCount', 2)} viajeros.")
     return jsonify({"success": True, "data": result})
 
 
@@ -1141,7 +1219,83 @@ def api_generate_itinerary():
         data.get("destination", ""), data.get("days", 4), data.get("travelers", 2),
         data.get("travelType", ""), data.get("pace", ""), data.get("notes", ""),
     )
+    user = get_current_user()
+    store.log_action(user.id, user.name, "CONSULTA_IA_ITINERARIO", "Motor IA",
+                     f"Itinerario vía {ai_service.last_provider} "
+                     f"({ai_service.last_used_model or 'respaldo'}) para "
+                     f"{data.get('destination', '') or 'destino'} "
+                     f"({data.get('days', 4)} días).")
     return jsonify({"success": True, "data": result})
+
+
+# ----------------------------------------------------------------------
+# Itinerarios guardados por reserva (RF-10, fase P6)
+# ----------------------------------------------------------------------
+def _itinerary_payload():
+    """Lee y valida el JSON del cuerpo para guardar/editar un itinerario."""
+    from .validators import validate_itinerary_content
+    data = request.get_json(force=True, silent=True)
+    if data is None:
+        return None, None, ["El cuerpo debe ser un objeto JSON."]
+    content = data.get("content", data)
+    cleaned, errors = validate_itinerary_content(content)
+    source = data.get("source", "manual") if isinstance(data, dict) else "manual"
+    return cleaned, source, errors
+
+
+@bp.route("/bookings/<int:booking_id>/itinerary", methods=["POST"])
+@permission_required("ai:itinerary")
+def save_itinerary(booking_id):
+    """Guarda el itinerario de una reserva (el booking_id es solo el de la URL)."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    if store.get_itinerary(booking.id) is not None:
+        return jsonify({"success": False,
+                        "error": "La reserva ya tiene itinerario; usa PUT para editarlo."}), 409
+    cleaned, source, errors = _itinerary_payload()
+    if errors:
+        return jsonify({"success": False, "errors": errors}), 422
+    itinerary = store.save_itinerary(user, booking, cleaned, source)
+    return jsonify({"success": True, "id": itinerary.id, "content": itinerary.content}), 201
+
+
+@bp.route("/bookings/<int:booking_id>/itinerary", methods=["GET"])
+@permission_required("ai:itinerary")
+def get_itinerary(booking_id):
+    """Devuelve el itinerario guardado de una reserva propia (404 si no hay)."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    itinerary = store.get_itinerary(booking.id)
+    if itinerary is None:
+        return jsonify({"success": False, "error": "Sin itinerario para esta reserva."}), 404
+    return jsonify({"success": True, "id": itinerary.id, "source": itinerary.source,
+                    "content": itinerary.content})
+
+
+@bp.route("/bookings/<int:booking_id>/itinerary", methods=["PUT"])
+@permission_required("ai:itinerary")
+def update_itinerary(booking_id):
+    """Edita (o crea si no existe) el itinerario de una reserva propia."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    cleaned, source, errors = _itinerary_payload()
+    if errors:
+        return jsonify({"success": False, "errors": errors}), 422
+    itinerary = store.save_itinerary(user, booking, cleaned, source)
+    return jsonify({"success": True, "id": itinerary.id, "content": itinerary.content})
+
+
+@bp.route("/bookings/<int:booking_id>/itinerary", methods=["DELETE"])
+@permission_required("itinerary:delete")
+def delete_itinerary(booking_id):
+    """Elimina el itinerario de una reserva. Solo administradores (RN-04)."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    itinerary = store.get_itinerary(booking.id)
+    if itinerary is None:
+        return jsonify({"success": False, "error": "Sin itinerario para esta reserva."}), 404
+    store.delete_itinerary(user, itinerary)
+    return jsonify({"success": True})
 
 
 @bp.route("/api/health")
