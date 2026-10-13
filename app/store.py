@@ -144,15 +144,31 @@ class DataStore:
         settings_repo.set_predictive_data(value)
         self._commit()
 
-    def record_prediction(self, current_user, timeframe, result) -> None:
-        """Guarda el resultado predictivo y su auditoría en una transacción."""
-        settings_repo.set_predictive_data(result)
+    def record_prediction(self, current_user, timeframe, result) -> dict:
+        """Guarda el resultado predictivo, fecha de generación y auditoría."""
+        before = settings_repo.get_predictive_data()
+        stored_result = dict(result)
+        stored_result["generatedAt"] = datetime.datetime.now(
+            datetime.timezone.utc).isoformat()
+        settings_repo.set_predictive_data(stored_result)
         audit.record("EJECUCIÓN_PREDICCIÓN_IA", "Motor IA Predictivo", user=current_user,
+                     before={"value": before}, after={"value": stored_result},
                      entity_type="Setting", entity_id=settings_repo.PREDICTIVE_KEY,
                      details=f"Análisis de comportamiento de compra generado para periodo: {timeframe}")
         self._notify("Estadísticas Predictivas Actualizadas",
                      "El motor de Inteligencia Artificial completó la predicción de demanda "
                      "y propensión de compra.", "success", "ai-predictive")
+        self._commit()
+        return stored_result
+
+    def record_ai_call(self, current_user, action, module) -> None:
+        """Audita una operación de IA sin guardar su prompt ni datos de entrada."""
+        audit.record(
+            action,
+            module,
+            user=current_user,
+            details="Solicitud procesada por el servicio de IA; no se almacenaron datos de entrada.",
+        )
         self._commit()
 
     def _commit(self) -> None:

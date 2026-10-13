@@ -232,11 +232,13 @@ def dashboard():
 @permission_required("ai:predictive_view")
 def ai_predictive():
     timeframe = request.args.get("timeframe", "Próximos 6 meses (Q3 & Q4)")
-    if store.predictive_data is None:
-        store.predictive_data = ai_service.get_predictive_analytics(
+    predictive_data = store.predictive_data
+    if predictive_data is None:
+        result = ai_service.get_predictive_analytics(
             store.clients, store.bookings, store.packages, timeframe)
+        predictive_data = store.record_prediction(get_current_user(), timeframe, result)
     return render_template("ai_predictive.html", active_tab="ai-predictive",
-                            predictive_data=store.predictive_data, timeframe=timeframe)
+                            predictive_data=predictive_data, timeframe=timeframe)
 
 
 @bp.route("/bookings")
@@ -1221,7 +1223,7 @@ def api_predictive_analytics():
     data = request.get_json(force=True, silent=True) or {}
     timeframe = data.get("selectedTimeframe", "Próximos 6 meses")
     result = ai_service.get_predictive_analytics(store.clients, store.bookings, store.packages, timeframe)
-    store.record_prediction(get_current_user(), timeframe, result)
+    result = store.record_prediction(get_current_user(), timeframe, result)
     return jsonify({"success": True, "data": result})
 
 
@@ -1234,6 +1236,11 @@ def api_recommendations():
         data.get("clientProfile", {}) or {}, data.get("budget", 2500), data.get("travelStyle", ""),
         data.get("travelersCount", 2), data.get("interests", ""),
     )
+    store.record_ai_call(
+        get_current_user(),
+        "EJECUCIÓN_RECOMENDACIONES_IA",
+        "Motor IA Recomendaciones",
+    )
     return jsonify({"success": True, "data": result})
 
 
@@ -1245,6 +1252,11 @@ def api_generate_itinerary():
     result = ai_service.get_itinerary(
         data.get("destination", ""), data.get("days", 4), data.get("travelers", 2),
         data.get("travelType", ""), data.get("pace", ""), data.get("notes", ""),
+    )
+    store.record_ai_call(
+        get_current_user(),
+        "EJECUCIÓN_ITINERARIO_IA",
+        "Motor IA Itinerarios",
     )
     return jsonify({"success": True, "data": result})
 

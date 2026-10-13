@@ -14,9 +14,13 @@ motivo, cada función retorna una respuesta simulada de alta fidelidad (igual
 que hacía el código original) para que la demo nunca se quede "rota".
 """
 from __future__ import annotations
-import os
+
 import json
+import logging
+import math
+import os
 import time
+from copy import deepcopy
 
 try:
     from google import genai
@@ -26,54 +30,117 @@ except ImportError:  # el paquete es opcional hasta que se instale
     genai_types = None
 
 MODELS_TO_TRY = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"]
+GEMINI_TIMEOUT_MS = 15_000
+MAX_ATTEMPTS_PER_MODEL = 2
+RETRY_DELAY_SECONDS = 0.4
 
 _client = None
 
 
 def _get_client():
-    """Inicializa (una sola vez) el cliente de Gemini de forma perezosa."""
+    """Inicializa el cliente de Gemini con límite de tiempo para cada petición."""
     global _client
     if _client is not None:
         return _client
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key or genai is None:
         raise RuntimeError("GEMINI_API_KEY no está configurada o falta el paquete google-genai")
-    _client = genai.Client(api_key=api_key)
+    _client = genai.Client(
+        api_key=api_key,
+        http_options=genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS),
+    )
     return _client
 
 
-def generate_gemini_json(prompt: str, fallback_fn):
+def _normalize_json(value, schema):
+    """Valida tipos y claves requeridas usando un objeto default como esquema."""
+    if isinstance(schema, dict):
+        source = value if isinstance(value, dict) else {}
+        return {
+            key: _normalize_json(source.get(key), default)
+            for key, default in schema.items()
+        }
+
+    if isinstance(schema, list):
+        if not isinstance(value, list):
+            return deepcopy(schema)
+        if not schema:
+            return value
+        example = schema[0]
+        if isinstance(example, dict):
+            return [_normalize_json(item, example) for item in value if isinstance(item, dict)]
+        return [
+            _normalize_json(item, example)
+            for item in value
+            if isinstance(item, type(example))
+        ]
+
+    if isinstance(schema, bool):
+        return value if isinstance(value, bool) else schema
+    if isinstance(schema, int):
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(float(value)) and float(value).is_integer()):
+            return int(value)
+        return schema
+    if isinstance(schema, float):
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(float(value))):
+            return float(value)
+        return schema
+    if isinstance(schema, str):
+        return value if isinstance(value, str) else schema
+    return deepcopy(schema)
+
+
+def _is_retryable(error: Exception) -> bool:
+    message = str(error).casefold()
+    retry_terms = (
+        "429", "503", "unavailable", "quota", "high demand",
+        "timeout", "timed out", "connection reset", "temporarily unavailable",
+    )
+    return (
+        isinstance(error, (TimeoutError, ConnectionError, json.JSONDecodeError))
+        or any(term in message for term in retry_terms)
+    )
+
+
+def generate_gemini_json(prompt: str, fallback_fn, *, validate: bool = False):
     """
-    Llama a Gemini pidiendo una respuesta JSON, intentando varios modelos y
-    reintentando ante errores de saturación (503/429), igual que en server.ts.
-    Si todo falla, devuelve el resultado de `fallback_fn()`.
+    Llama a Gemini con reintentos acotados, valida la forma de la respuesta y
+    aplica los defaults del respaldo cuando falten campos o tengan tipos inválidos.
     """
+    fallback = fallback_fn()
     last_error = None
     try:
         client = _get_client()
         for model in MODELS_TO_TRY:
-            for attempt in range(2):
+            for attempt in range(MAX_ATTEMPTS_PER_MODEL):
                 try:
                     response = client.models.generate_content(
                         model=model,
                         contents=prompt,
-                        config=genai_types.GenerateContentConfig(response_mime_type="application/json"),
+                        config=genai_types.GenerateContentConfig(
+                            response_mime_type="application/json"),
                     )
-                    if response.text:
-                        return json.loads(response.text)
+                    if not response.text:
+                        raise ValueError("Gemini devolvió una respuesta vacía.")
+                    result = json.loads(response.text)
+                    return _normalize_json(result, fallback) if validate else result
                 except Exception as err:  # noqa: BLE001
                     last_error = err
-                    msg = str(err)
-                    is_busy = any(code in msg for code in ["503", "429", "UNAVAILABLE", "quota", "high demand"])
-                    if is_busy and attempt == 0:
-                        time.sleep(0.8)
+                    if (attempt + 1 < MAX_ATTEMPTS_PER_MODEL
+                            and _is_retryable(err)):
+                        time.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
                         continue
                     break
     except Exception as err:  # noqa: BLE001
         last_error = err
 
-    print(f"[ai_service] Gemini no disponible, usando generador de respaldo: {last_error}")
-    return fallback_fn()
+    logging.getLogger(__name__).warning(
+        "Gemini no disponible; se usará la respuesta local de respaldo: %s",
+        last_error,
+    )
+    return _normalize_json(fallback, fallback) if validate else fallback
 
 
 # ----------------------------------------------------------------------
@@ -188,7 +255,7 @@ Tu respuesta debe ser un análisis estadístico predictivo exhaustivo y accionab
             ],
         }
 
-    return generate_gemini_json(prompt, fallback)
+    return generate_gemini_json(prompt, fallback, validate=True)
 
 
 # ----------------------------------------------------------------------
@@ -252,7 +319,7 @@ Devuelve un JSON estructurado con:
             ],
         }
 
-    return generate_gemini_json(prompt, fallback)
+    return generate_gemini_json(prompt, fallback, validate=True)
 
 
 # ----------------------------------------------------------------------
@@ -322,4 +389,4 @@ Devuelve un JSON con:
             "estimatedBudgetUSD": (int(travelers) if travelers else 2) * (day_count * 175),
         }
 
-    return generate_gemini_json(prompt, fallback)
+    return generate_gemini_json(prompt, fallback, validate=True)
