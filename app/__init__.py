@@ -7,7 +7,7 @@ from flask_wtf.csrf import CSRFError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import INSTANCE_DIR, get_config, resolve_secret_key
-from .extensions import csrf, db, limiter, migrate
+from .extensions import csrf, db, limiter, mail, migrate
 
 
 def usd_filter(value):
@@ -74,6 +74,7 @@ def create_app(config_object=None):
     # dispersa por las rutas: se centraliza en DataStore._commit/_rollback.
     os.makedirs(INSTANCE_DIR, exist_ok=True)
     db.init_app(app)
+    mail.init_app(app)
     # render_as_batch=True: SQLite no soporta ALTER TABLE nativo para la mayoría
     # de cambios; el modo batch de Alembic los emula recreando la tabla. Se
     # necesita desde la primera migración para que las futuras (P3+) funcionen.
@@ -113,8 +114,13 @@ def create_app(config_object=None):
 
     # --- Comandos de la CLI (``flask seed``, ``flask backup``; ``flask db ...`` ---
     # lo aporta Flask-Migrate) ---
-    from .cli import backup_command, seed_command
+    from .cli import alerts_command, backup_command, seed_command
+    app.cli.add_command(alerts_command)
     app.cli.add_command(seed_command)
     app.cli.add_command(backup_command)
+
+    if app.config.get("ENABLE_SCHEDULER") and not app.testing:
+        from .alerts import start_scheduler
+        start_scheduler(app)
 
     return app

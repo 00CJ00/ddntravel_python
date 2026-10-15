@@ -12,7 +12,9 @@ datos y cada mutación se confirma contra la sesión de SQLAlchemy.
 from __future__ import annotations
 
 import datetime
+import os
 
+from flask import current_app
 from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 
@@ -21,6 +23,7 @@ from . import models as m
 from . import seed as seed_module
 from .extensions import db
 from .repositories import bookings as bookings_repo
+from .repositories import itinerary as itinerary_repo
 from .repositories import catalog, people
 from .repositories import documents as documents_repo
 from .repositories import notifications as notifications_repo
@@ -141,15 +144,31 @@ class DataStore:
         settings_repo.set_predictive_data(value)
         self._commit()
 
-    def record_prediction(self, current_user, timeframe, result) -> None:
-        """Guarda el resultado predictivo y su auditoría en una transacción."""
-        settings_repo.set_predictive_data(result)
+    def record_prediction(self, current_user, timeframe, result) -> dict:
+        """Guarda el resultado predictivo, fecha de generación y auditoría."""
+        before = settings_repo.get_predictive_data()
+        stored_result = dict(result)
+        stored_result["generatedAt"] = datetime.datetime.now(
+            datetime.timezone.utc).isoformat()
+        settings_repo.set_predictive_data(stored_result)
         audit.record("EJECUCIÓN_PREDICCIÓN_IA", "Motor IA Predictivo", user=current_user,
+                     before={"value": before}, after={"value": stored_result},
                      entity_type="Setting", entity_id=settings_repo.PREDICTIVE_KEY,
                      details=f"Análisis de comportamiento de compra generado para periodo: {timeframe}")
         self._notify("Estadísticas Predictivas Actualizadas",
                      "El motor de Inteligencia Artificial completó la predicción de demanda "
                      "y propensión de compra.", "success", "ai-predictive")
+        self._commit()
+        return stored_result
+
+    def record_ai_call(self, current_user, action, module) -> None:
+        """Audita una operación de IA sin guardar su prompt ni datos de entrada."""
+        audit.record(
+            action,
+            module,
+            user=current_user,
+            details="Solicitud procesada por el servicio de IA; no se almacenaron datos de entrada.",
+        )
         self._commit()
 
     def _commit(self) -> None:
@@ -212,28 +231,39 @@ class DataStore:
                           details=details)
 
     def _notify(self, title, message, ntype="info", link_tab=None,
-                roles=None, visible_roles=None) -> None:
+                roles=None, visible_roles=None, event_key=None) -> bool:
         """Encola una notificación en la transacción actual (no confirma)."""
         if visible_roles is not None:
             roles = visible_roles
         if roles is None:
             roles = ["admin", "employee"] if link_tab in INTERNAL_NOTIFICATION_TABS else None
+        if event_key is not None and notifications_repo.get_by_event_key(event_key) is not None:
+            return False
         notifications_repo.create_notification(
-            title, message, ntype=ntype, link_tab=link_tab, visible_roles=roles)
+            title, message, ntype=ntype, link_tab=link_tab, visible_roles=roles,
+            event_key=event_key)
+        return True
+
+    def notification_read_ids(self, user_id) -> set[int]:
+        return notifications_repo.read_ids_for_user(user_id)
 
     def add_notification(self, title, message, ntype="info", link_tab=None,
-                         roles=None, visible_roles=None) -> None:
-        self._notify(title, message, ntype, link_tab, roles, visible_roles)
+                         roles=None, visible_roles=None, event_key=None) -> bool:
+        created = self._notify(
+            title, message, ntype, link_tab, roles, visible_roles, event_key)
         self._commit()
+        return created
 
-    def mark_notification_as_read(self, notif_id) -> None:
+    def mark_notification_as_read(self, current_user, notif_id) -> None:
         notification = notifications_repo.get_notification(notif_id)
-        if notification is not None:
-            notifications_repo.mark_read(notification)
+        if (notification is not None
+                and (notification.visible_roles is None
+                     or current_user.role in notification.visible_roles)):
+            notifications_repo.mark_read(notification, current_user.id)
             self._commit()
 
-    def mark_all_notifications_as_read(self) -> None:
-        notifications_repo.mark_all_read()
+    def mark_all_notifications_as_read(self, current_user) -> None:
+        notifications_repo.mark_all_read(current_user.id, current_user.role)
         self._commit()
 
     # ------------------------------------------------------------------
@@ -272,6 +302,53 @@ class DataStore:
                      entity_id=client_id, before=before, after=audit.snapshot(client),
                      user=current_user,
                      details=f"Eliminado cliente ID: {client_id} (baja lógica)")
+        self._commit()
+        return True
+
+    # ------------------------------------------------------------------
+    # Itinerarios (RF-10)
+    # ------------------------------------------------------------------
+    def save_itinerary(self, current_user, booking_id, content, source="ia") -> m.Itinerary:
+        booking = self.get_booking(booking_id)
+        if not booking:
+            return None
+        itinerary = itinerary_repo.create_itinerary({
+            "booking_id": booking.id, "client_id": booking.client_id,
+            "destination": booking.destination_name or "",
+            "days": len(content.get("days", [])), "source": source,
+            "content": content, "created_by": getattr(current_user, "id", None),
+        })
+        audit.record("CREAR_ITINERARIO", "Itinerarios", itinerary, user=current_user,
+                     details=f"Itinerario guardado para reserva {booking.booking_code} (source={source})")
+        self._commit()
+        return itinerary
+
+    def get_booking_itinerary(self, booking_id):
+        items = itinerary_repo.list_for_booking(booking_id)
+        return items[0] if items else None
+
+    def update_itinerary(self, current_user, itinerary_id, content):
+        itinerary = itinerary_repo.get_itinerary(itinerary_id)
+        if itinerary is None:
+            return None
+        before = audit.snapshot(itinerary)
+        itinerary.content = content
+        itinerary.days = len(content.get("days", []))
+        audit.record("EDITAR_ITINERARIO", "Itinerarios", itinerary, before=before,
+                     user=current_user,
+                     details=f"Itinerario {itinerary.id} actualizado")
+        self._commit()
+        return itinerary
+
+    def delete_itinerary(self, current_user, itinerary_id) -> bool:
+        itinerary = itinerary_repo.get_itinerary(itinerary_id)
+        if itinerary is None:
+            return False
+        before = audit.snapshot(itinerary)
+        itinerary_repo.delete_itinerary(itinerary)
+        audit.record("ELIMINAR_ITINERARIO", "Itinerarios", entity_type="Itinerary",
+                     entity_id=itinerary_id, before=before, user=current_user,
+                     details=f"Itinerario {itinerary_id} eliminado")
         self._commit()
         return True
 
@@ -676,6 +753,20 @@ class DataStore:
             if client is not None:
                 people.register_trip(client, total_price)
 
+            voucher = documents_repo.create_document({
+                "client_id": booking.client_id,
+                "booking_id": booking.id,
+                "doc_type": "Voucher de Reserva",
+                "file_name": f"Voucher_Oficial_{booking.booking_code}.pdf",
+                "mime": "application/pdf",
+                "status": "Pendiente",
+                "upload_date": _today(),
+                "uploaded_by": coerce_id(current_user.id),
+            })
+            audit.record("CREAR_VOUCHER_PENDIENTE", "Documentos", voucher,
+                         user=current_user,
+                         details=f"Voucher pendiente para reserva {booking.booking_code}.")
+
             if initial_payment > 0:
                 pay_status = "Completado" if payment_method in ("Tarjeta de Crédito", "PayPal") \
                     else "Pendiente_verificacion"
@@ -705,8 +796,12 @@ class DataStore:
                              f"({destination_name}) por un total de ${booking.total_price} USD.")
         self._notify("Nueva Reserva Confirmada",
                      f"Reserva {booking.booking_code} generada para {client_name}. "
-                     f"Total: ${booking.total_price} USD.", "success", "bookings")
+                     f"Total: ${booking.total_price} USD.", "success", "bookings",
+                     event_key=f"booking-created:{booking.id}")
         self._commit()
+        if booking.status == "Confirmada":
+            from .email_service import send_booking_email
+            send_booking_email("booking_confirmed", booking)
         return {"success": True, "message": f"¡Reserva {booking.booking_code} registrada con éxito!",
                 "booking": booking}
 
@@ -732,8 +827,11 @@ class DataStore:
                      details=f"Reserva {booking.booking_code} cancelada. Motivo: {reason or 'N/A'}")
         self._notify("Reserva Cancelada",
                      f"La reserva {booking.booking_code} fue cancelada. Se han restaurado los cupos.",
-                     "warning", "bookings")
+                     "warning", "bookings",
+                     event_key=f"booking-cancelled:{booking.id}")
         self._commit()
+        from .email_service import send_booking_email
+        send_booking_email("booking_cancelled", booking, reason=reason)
         return True
 
     # ------------------------------------------------------------------
@@ -793,13 +891,6 @@ class DataStore:
             elif pay_status != "Completado" and booking.amount_paid == 0:
                 booking.payment_status = "Pendiente_verificacion"
 
-            if pay_status == "Completado" and booking.is_fully_paid():
-                documents_repo.create_document({
-                    "client_id": booking.client_id, "doc_type": "Voucher de Reserva",
-                    "file_name": f"Voucher_Oficial_{booking.booking_code}.pdf", "status": "Válido",
-                    "upload_date": _today(),
-                })
-
             audit.record("PAGO_REGISTRADO", "Pagos & Facturación", payment, user=current_user,
                          details=f"Registrado pago de ${amount} USD para reserva {booking.booking_code} "
                                  f"mediante {method}. Factura: {payment.invoice_number}")
@@ -809,7 +900,8 @@ class DataStore:
                                  f"${booking.amount_paid} USD ({booking.payment_status}).")
             self._notify("Pago Recibido",
                          f"Se registró pago de ${amount} USD para la reserva {booking.booking_code}.",
-                         "success", "payments")
+                         "success", "payments",
+                         event_key=f"payment-received:{payment.id}")
             self._commit()
         except IntegrityError:
             self._rollback()
@@ -822,6 +914,11 @@ class DataStore:
             self._rollback()
             return {"success": False,
                     "message": f"No se pudo registrar el pago: {exc}"}
+        from .email_service import send_booking_email
+        send_booking_email("payment_received", booking, payment=payment)
+        if (booking.status == "Confirmada"
+                and booking_before.get("status") != "Confirmada"):
+            send_booking_email("booking_confirmed", booking)
         return {"success": True,
                 "message": f"Pago de ${amount} USD registrado exitosamente. Recibo: {payment.receipt_number}",
                 "payment": payment}
@@ -838,6 +935,7 @@ class DataStore:
         before = audit.snapshot(payment)
         payment.status = "Completado"
         booking = self.get_booking(payment.booking_id)
+        previous_booking_status = booking.status if booking is not None else None
         if booking is not None and booking.status != "Cancelada":
             bookings_repo.apply_payment(booking, payment.amount)
             if booking.is_fully_paid():
@@ -846,6 +944,10 @@ class DataStore:
                      user=current_user,
                      details=f"Pago {payment.receipt_number} verificado (${payment.amount} USD).")
         self._commit()
+        if (booking is not None and booking.status == "Confirmada"
+                and previous_booking_status != "Confirmada"):
+            from .email_service import send_booking_email
+            send_booking_email("booking_confirmed", booking)
         return {"success": True, "message": "Pago verificado correctamente.", "payment": payment}
 
     # ------------------------------------------------------------------
@@ -936,11 +1038,15 @@ class DataStore:
         booking = self.get_booking(booking_id)
         if not booking:
             return {"success": False, "message": "Reserva no encontrada."}
+        previous_status = booking.status
         result = BookingService.transition(self, booking, status)
         if result["success"]:
             audit.record("ACTUALIZAR_ESTADO_RESERVA", "Reservas", booking, user=current_user,
                          details=f"Reserva ID: {booking_id} actualizada a estado: {status}")
             self._commit()
+            if booking.status == "Confirmada" and previous_status != "Confirmada":
+                from .email_service import send_booking_email
+                send_booking_email("booking_confirmed", booking)
         return result
 
     # ------------------------------------------------------------------
@@ -988,6 +1094,82 @@ class DataStore:
                              f"para cliente {doc.client_id}")
         self._commit()
         return doc
+
+    def upload_document(self, current_user, file_storage, client_id, doc_type="Documento",
+                        expiry_date="") -> dict:
+        """Sube un archivo real (multipart) y crea el registro en BD."""
+        try:
+            stored, original, mime, size = documents_repo.upload_document_file(file_storage)
+        except ValueError as exc:
+            return {"success": False, "message": str(exc)}
+        doc = documents_repo.create_document({
+            "client_id": client_id, "doc_type": doc_type, "file_name": original,
+            "stored_name": stored, "mime": mime, "size_bytes": size,
+            "status": "Válido", "expiry_date": expiry_date or None,
+            "uploaded_by": getattr(current_user, "id", None),
+        })
+        audit.record("SUBIR_DOCUMENTO", "Documentos", doc, user=current_user,
+                     details=f"Archivo {original} ({size} bytes) subido para cliente {client_id}")
+        self._commit()
+        return {"success": True, "id": doc.id, "file_name": original}
+
+    def generate_booking_voucher(self, booking) -> bool:
+        """Actualiza el voucher pendiente; la generación no bloquea la confirmación."""
+        doc = documents_repo.get_booking_voucher(booking.id)
+        if doc is None:
+            current_app.logger.error(
+                "No se encontró el voucher pendiente de la reserva ID %s.", booking.id)
+            return False
+
+        upload_dir = current_app.config.get("UPLOAD_DIR", "instance/uploads")
+        existing_path = os.path.join(upload_dir, doc.stored_name or "")
+        if (doc.status == "Válido" and doc.stored_name
+                and os.path.isfile(existing_path)):
+            return True
+
+        before = audit.snapshot(doc)
+        doc.status = "Pendiente"
+        try:
+            from .billing import generar_pdf_voucher
+
+            client = people.get_client(booking.client_id)
+            pdf_bytes = generar_pdf_voucher(booking, client)
+            if not pdf_bytes.startswith(b"%PDF"):
+                raise ValueError("El generador devolvió un archivo que no es PDF.")
+            stored_name = documents_repo.save_pdf_bytes(pdf_bytes)
+        except Exception:
+            current_app.logger.exception(
+                "No se pudo generar el voucher PDF de la reserva ID %s.", booking.id)
+            return False
+
+        doc.file_name = f"Voucher_Oficial_{booking.booking_code}.pdf"
+        doc.stored_name = stored_name
+        doc.mime = "application/pdf"
+        doc.size_bytes = len(pdf_bytes)
+        doc.status = "Válido"
+        doc.upload_date = datetime.date.today()
+        audit.record("GENERAR_VOUCHER", "Documentos", doc, before=before,
+                     details=f"Voucher generado para reserva {booking.booking_code}.")
+        return True
+
+    def get_document_for_download(self, current_user, doc_id):
+        """Devuelve (doc, path) si el usuario tiene permiso, o None."""
+        doc = documents_repo.get_document(doc_id)
+        if doc is None:
+            return None
+        if current_user.role == "client":
+            client = people.get_client_by_email(current_user.email)
+            if client is None or doc.client_id != client.id:
+                raise PermissionError("No tienes permiso para descargar este documento.")
+        elif current_user.role not in ("admin", "employee"):
+            return None
+        if not doc.stored_name:
+            return None
+        path = os.path.join(current_app.config.get("UPLOAD_DIR", "instance/uploads"),
+                            doc.stored_name)
+        if not os.path.isfile(path):
+            return None
+        return doc, path
 
     def delete_document(self, current_user, doc_id) -> bool:
         # RN-04 / matriz de permisos: solo admin elimina (PDF-01/pdfs…). Refuerzo
@@ -1110,6 +1292,7 @@ class DataStore:
             return {"success": False, "message": "Debe haber al menos un viajero."}
 
         before = audit.snapshot(booking)
+        previous_status = booking.status
 
         # Validar solapamiento de hotel con el nuevo número de habitaciones si cambia.
         if booking.hotel_id and ("check_in" in changes or "check_out" in changes or "rooms_count" in changes):
@@ -1164,6 +1347,9 @@ class DataStore:
         audit.record("ACTUALIZAR_RESERVA", "Reservas", booking, before=before, user=current_user,
                      details=f"Reserva {booking.booking_code} actualizada; total ${booking.total_price}.")
         self._commit()
+        if booking.status == "Confirmada" and previous_status != "Confirmada":
+            from .email_service import send_booking_email
+            send_booking_email("booking_confirmed", booking)
         return {"success": True, "message": "Reserva actualizada correctamente.", "booking": booking}
 
     # ------------------------------------------------------------------
@@ -1300,6 +1486,9 @@ class BookingService:
         # Consistencia: totalmente pagada y no cancelada ⇒ Confirmada.
         if nuevo_estado != "Cancelada" and booking.is_fully_paid() and booking.status != "Confirmada":
             booking.status = "Confirmada"
+
+        if booking.status == "Confirmada":
+            store.generate_booking_voucher(booking)
 
         return {"success": True,
                 "message": f"Transición '{old_status}' -> '{booking.status}' realizada con éxito."}

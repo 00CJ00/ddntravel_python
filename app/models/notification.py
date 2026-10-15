@@ -20,6 +20,9 @@ class Notification(BaseEntity, db.Model):
     link_tab = db.Column(db.String(40))
     visible_roles = db.Column(db.JSON)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    # Clave estable anti-duplicados (p. ej. "booking-confirmed:12").
+    # Nula en notificaciones operativas sin identidad de evento.
+    event_key = db.Column(db.String(120), unique=True)
 
     reads = db.relationship(
         "NotificationRead", back_populates="notification", cascade="all, delete-orphan")

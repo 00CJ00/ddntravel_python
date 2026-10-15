@@ -26,6 +26,7 @@ app/
   models/               # Modelos SQLAlchemy (uno por agregado): Client, Booking,
                         # Package, Hotel, RoomType, Flight, Transport, Activity,
                         # Payment, Promotion, AuditLog, TravelDocument, Notification,
+                        # AlertRecord,
                         # Itinerary, NcfSequence, Setting, User
                         # - BaseEntity aporta to_dict(), describe() y publicado()
                         # - Sin ñoñería de IDs: PK enteras autoincrementales
@@ -42,7 +43,7 @@ app/
                         # petición (IP, user agent) y helpers de login/logout
   backup.py             # Respaldo y restauración: SQLite con
                         # sqlite3.Connection.backup(), PostgreSQL con pg_dump
-  cli.py                # Comandos ``flask seed`` y ``flask backup``
+  cli.py                # Comandos ``flask seed``, ``flask backup`` y ``flask alerts``
   ai_service.py          # Gemini (google-genai) con fallback de datos simulados
                         # si no hay GEMINI_API_KEY. 3 funciones:
                         #   get_predictive_analytics(), get_recommendations(),
@@ -93,6 +94,19 @@ La configuración de `.env` es opcional para desarrollo: si no defines
 habilitar Gemini u OAuth de Google, copia la plantilla con
 `Copy-Item .env.example .env` y completa únicamente las variables necesarias.
 No compartas ni subas `.env`.
+
+El correo SMTP es opcional. Para habilitar los emails transaccionales de
+reservas, pagos y cancelaciones, configura `MAIL_SERVER`, `MAIL_PORT`,
+`MAIL_USE_TLS` o `MAIL_USE_SSL`, y `MAIL_DEFAULT_SENDER`; `MAIL_USERNAME` y
+`MAIL_PASSWORD` se usan cuando el servidor los requiere. Sin servidor o
+remitente configurado, los eventos quedan registrados en el log y no se intenta
+conectar a SMTP.
+
+Las alertas se pueden ejecutar una vez con
+`python -m flask --app wsgi alerts run`. `ENABLE_SCHEDULER=0` es el valor predeterminado; en producción se
+recomienda programar ese comando con cron o el planificador del entorno. Solo
+activa `ENABLE_SCHEDULER=1` si el proceso de la aplicación debe ejecutar el job
+diario de APScheduler.
 
 ## Primera ejecución
 
@@ -190,6 +204,28 @@ válido, B04 notas de crédito) y factura PDF descargable.
 > **Aviso:** es una **simulación académica, NO autorizada por la DGII**.
 > No constituye facturación fiscal real. Los datos del emisor se configuran
 > con `AGENCY_RNC`, `AGENCY_NAME`, `AGENCY_ADDRESS` y `AGENCY_PHONE`.
+
+## Itinerarios, documentos, alertas e IA (fase P6)
+
+- **Itinerarios (RF-10):** además de `POST /api/ai/generate-itinerary`, cada
+  reserva guarda el suyo en `POST|GET|PUT|DELETE /bookings/<id>/itinerary`
+  (el cliente solo el propio; eliminar solo admin).
+- **Documentos (RF-17):** `POST /documents/upload` acepta `pdf/jpg/png` de
+  hasta 5 MB con firma verificada y los guarda con nombre UUID en
+  `UPLOAD_DIR` (fuera de `static/`); `GET /documents/<id>/download` exige
+  propiedad (ajeno → 403); eliminar solo admin. Al confirmarse una reserva
+  se genera su voucher PDF automáticamente (idempotente).
+- **Notificaciones (RF-13):** lectura por usuario (`NotificationRead`);
+  eventos de reserva confirmada, pago recibido y reserva cancelada, con
+  correo vía `MAIL_*` o respaldo de consola/log (un fallo de correo nunca
+  rompe la operación).
+- **Alertas:** `flask alerts run` detecta pasaportes por vencer, saldos con
+  salida ≤ 15 días, paquetes con ≤ 20 % de cupos y pendientes sin pago por
+  más de 72 h (idempotente; programadas a diario solo con
+  `ENABLE_SCHEDULER=1`).
+- **IA (RF-20):** Gemini opcional con respaldo por reglas; a Gemini solo
+  viajan alias (`Cliente A`), categorías y agregados — nunca nombres,
+  emails ni documentos. El chat responde por palabras completas.
 
 ## Usuarios de demostración
 

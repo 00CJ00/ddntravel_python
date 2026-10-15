@@ -72,3 +72,21 @@ def backup_command(backup_dir, keep, restore_file) -> None:
             click.echo(f"Respaldo creado: {destino}")
     except BackupError as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+@click.group("alerts")
+def alerts_command() -> None:
+    """Administra las alertas automáticas."""
+
+
+@alerts_command.command("run")
+@with_appcontext
+def run_alerts_command() -> None:
+    """Evalúa y crea las alertas pendientes para la fecha de ejecución."""
+    from .alerts import run_alerts
+
+    try:
+        created = run_alerts()
+    except Exception as exc:
+        raise click.ClickException(f"No se pudieron ejecutar las alertas: {exc}") from exc
+    click.echo(f"Alertas creadas: {created}")

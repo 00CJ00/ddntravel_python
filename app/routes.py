@@ -120,9 +120,12 @@ def inject_globals():
             n for n in view.notifications
             if n.visible_roles is None or current_user.role in n.visible_roles
         ]
+        read_ids = store.notification_read_ids(current_user.id)
+        for notification in visible_notifs:
+            notification.read_for_current_user = notification.id in read_ids
     else:
         visible_notifs = []
-    unread = [n for n in visible_notifs if not n.read]
+    unread = [n for n in visible_notifs if not n.read_for_current_user]
     # Mapa permiso → bool para que el JS decida qué botones mostrar. Es la misma
     # matriz que aplica el servidor: solo oculta botones, nunca autoriza.
     client_permissions = {p: can(p, current_user) for p in PERMISSIONS}
@@ -229,11 +232,13 @@ def dashboard():
 @permission_required("ai:predictive_view")
 def ai_predictive():
     timeframe = request.args.get("timeframe", "Próximos 6 meses (Q3 & Q4)")
-    if store.predictive_data is None:
-        store.predictive_data = ai_service.get_predictive_analytics(
+    predictive_data = store.predictive_data
+    if predictive_data is None:
+        result = ai_service.get_predictive_analytics(
             store.clients, store.bookings, store.packages, timeframe)
+        predictive_data = store.record_prediction(get_current_user(), timeframe, result)
     return render_template("ai_predictive.html", active_tab="ai-predictive",
-                            predictive_data=store.predictive_data, timeframe=timeframe)
+                            predictive_data=predictive_data, timeframe=timeframe)
 
 
 @bp.route("/bookings")
@@ -830,14 +835,14 @@ def reset_data():
 @bp.route("/notifications/<int:notif_id>/read", methods=["POST"])
 @permission_required("notifications:read")
 def read_notification(notif_id):
-    store.mark_notification_as_read(notif_id)
+    store.mark_notification_as_read(get_current_user(), notif_id)
     return redirect_back("main.dashboard")
 
 
 @bp.route("/notifications/read-all", methods=["POST"])
 @permission_required("notifications:read")
 def read_all_notifications():
-    store.mark_all_notifications_as_read()
+    store.mark_all_notifications_as_read(get_current_user())
     return redirect_back("main.dashboard")
 
 
@@ -965,6 +970,82 @@ def new_booking():
     return redirect(url_for("main.bookings"))
 
 
+def _json_or_form():
+    """Acepta JSON (fetch) o form-data (formularios tradicionales).
+
+    Si es form-data, intenta parsear 'content' como JSON.
+    """
+    data = request.get_json(force=True, silent=True)
+    if data is not None:
+        return data
+    form = request.form
+    if "content" in form:
+        import json as _json
+        try:
+            return {"content": _json.loads(form["content"]), "source": form.get("source", "ia")}
+        except (ValueError, TypeError):
+            return form
+    return form
+
+
+@bp.route("/bookings/<int:booking_id>/itinerary", methods=["POST"])
+@permission_required("itineraries:create")
+def save_booking_itinerary(booking_id):
+    """Guarda un itinerario (generado por IA o manual) para una reserva."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    data = _json_or_form()
+    content = data.get("content", data)
+    from . import validators
+    errors = validators.validate_itinerary_content(content)
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
+    itinerary = store.save_itinerary(user, booking.id, content,
+                                     source=data.get("source", "ia"))
+    if itinerary is None:
+        return jsonify({"success": False, "error": "Reserva no encontrada"}), 404
+    return jsonify({"success": True, "id": itinerary.id})
+
+
+@bp.route("/bookings/<int:booking_id>/itinerary", methods=["GET"])
+@permission_required("itineraries:view")
+def get_booking_itinerary(booking_id):
+    """Obtiene el itinerario de una reserva (solo dueño o staff)."""
+    user = get_current_user()
+    booking = owned_or_404(user, store.get_booking(booking_id))
+    itinerary = store.get_booking_itinerary(booking.id)
+    if itinerary is None:
+        return jsonify({"success": False, "error": "Itinerario no encontrado"}), 404
+    return jsonify({"success": True, "content": itinerary.content, "source": itinerary.source})
+
+
+@bp.route("/itineraries/<int:itinerary_id>", methods=["PUT"])
+@permission_required("itineraries:edit")
+def update_itinerary(itinerary_id):
+    """Edita el contenido JSON de un itinerario (sobrescribe completo)."""
+    user = get_current_user()
+    data = _json_or_form()
+    content = data.get("content", data)
+    from . import validators
+    errors = validators.validate_itinerary_content(content)
+    if errors:
+        return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
+    itinerary = store.update_itinerary(user, itinerary_id, content)
+    if itinerary is None:
+        return jsonify({"success": False, "error": "Itinerario no encontrado"}), 404
+    return jsonify({"success": True})
+
+
+@bp.route("/itineraries/<int:itinerary_id>", methods=["DELETE"])
+@permission_required("itineraries:delete")
+def delete_itinerary(itinerary_id):
+    """Elimina un itinerario (solo admin)."""
+    user = get_current_user()
+    if not store.delete_itinerary(user, itinerary_id):
+        return jsonify({"success": False, "error": "Itinerario no encontrado"}), 404
+    return jsonify({"success": True})
+
+
 @bp.route("/bookings/<int:booking_id>/cancel", methods=["POST"])
 @permission_required("bookings:cancel")
 def cancel_booking(booking_id):
@@ -1074,9 +1155,9 @@ def preview_promo():
 @bp.route("/documents/new", methods=["POST"])
 @permission_required("documents:create")
 def new_document():
+    """Sube un documento real (multipart) con validación de extensión y firma."""
     f = request.form
     user = get_current_user()
-    # Un cliente sube documentos a su propio expediente, nunca al de otro (IDOR).
     if user.role == "client":
         client = client_record(user)
         if client is None:
@@ -1084,13 +1165,39 @@ def new_document():
             return redirect(url_for("main.client_portal"))
     else:
         client = store.get_client(f.get("client_id", ""))
-    store.add_document(
-        user, client_id=client.id if client else "", client_name=client.name if client else "N/A",
-        doc_type=f.get("doc_type", "Voucher de Reserva"), document_number=f.get("document_number", ""),
-        file_name=f.get("file_name") or f"{f.get('doc_type', 'Documento')}_{f.get('document_number', '')}.pdf",
-        file_size="1.1 MB", expiry_date=f.get("expiry_date", ""), status="Válido",
+    if client is None:
+        flash("Debe indicar un cliente válido.", "error")
+        return redirect(url_for("main.documents"))
+    file = request.files.get("file")
+    if file is None:
+        flash("Debe adjuntar un archivo.", "error")
+        return redirect(url_for("main.documents"))
+    result = store.upload_document(
+        user, file, client.id,
+        doc_type=f.get("doc_type", "Documento"),
+        expiry_date=f.get("expiry_date", ""),
     )
+    if not result.get("success"):
+        flash(result.get("message", "No se pudo subir el archivo."), "error")
+        return redirect(url_for("main.documents"))
+    flash("Documento subido exitosamente.", "success")
     return redirect(url_for("main.documents"))
+
+
+@bp.route("/documents/<int:doc_id>/download")
+@permission_required("documents:view")
+def download_document(doc_id):
+    """Descarga un documento verificando propiedad (IDOR)."""
+    user = get_current_user()
+    try:
+        result = store.get_document_for_download(user, doc_id)
+    except PermissionError:
+        return jsonify({"success": False, "error": "No tienes permiso para descargar este documento"}), 403
+    if result is None:
+        return jsonify({"success": False, "error": "Documento no encontrado"}), 404
+    doc, path = result
+    return send_file(path, mimetype=doc.mime or "application/octet-stream",
+                     as_attachment=True, download_name=doc.file_name)
 
 
 @bp.route("/documents/<int:doc_id>/delete", methods=["POST"])
@@ -1116,7 +1223,7 @@ def api_predictive_analytics():
     data = request.get_json(force=True, silent=True) or {}
     timeframe = data.get("selectedTimeframe", "Próximos 6 meses")
     result = ai_service.get_predictive_analytics(store.clients, store.bookings, store.packages, timeframe)
-    store.record_prediction(get_current_user(), timeframe, result)
+    result = store.record_prediction(get_current_user(), timeframe, result)
     return jsonify({"success": True, "data": result})
 
 
@@ -1129,6 +1236,11 @@ def api_recommendations():
         data.get("clientProfile", {}) or {}, data.get("budget", 2500), data.get("travelStyle", ""),
         data.get("travelersCount", 2), data.get("interests", ""),
     )
+    store.record_ai_call(
+        get_current_user(),
+        "EJECUCIÓN_RECOMENDACIONES_IA",
+        "Motor IA Recomendaciones",
+    )
     return jsonify({"success": True, "data": result})
 
 
@@ -1140,6 +1252,11 @@ def api_generate_itinerary():
     result = ai_service.get_itinerary(
         data.get("destination", ""), data.get("days", 4), data.get("travelers", 2),
         data.get("travelType", ""), data.get("pace", ""), data.get("notes", ""),
+    )
+    store.record_ai_call(
+        get_current_user(),
+        "EJECUCIÓN_ITINERARIO_IA",
+        "Motor IA Itinerarios",
     )
     return jsonify({"success": True, "data": result})
 

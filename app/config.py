@@ -50,6 +50,10 @@ class Config:
     BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "10"))
     BACKUP_DIR = os.environ.get("BACKUP_DIR") or str(BASE_DIR / "backups")
 
+    # --- Subida de documentos (RF-17) ---
+    UPLOAD_DIR = os.environ.get("UPLOAD_DIR") or str(BASE_DIR / "instance" / "uploads")
+    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 5 * 1024 * 1024))
+
     # --- Sesión y cookies (RNF-01) ---
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
     SESSION_COOKIE_HTTPONLY = True
@@ -75,11 +79,25 @@ class Config:
     AI_GENERATIVE_RATE_LIMIT = os.environ.get("AI_GENERATIVE_RATE_LIMIT", "10 per minute")
     AI_PREDICTIVE_RATE_LIMIT = os.environ.get("AI_PREDICTIVE_RATE_LIMIT", "6 per hour")
 
+    # --- Correo transaccional de notificaciones (RF-13) ---
+    MAIL_SERVER = os.environ.get("MAIL_SERVER") or None
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", "587"))
+    MAIL_USE_TLS = _flag("MAIL_USE_TLS", "1")
+    MAIL_USE_SSL = _flag("MAIL_USE_SSL", "0")
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME") or None
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD") or None
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER") or None
+
     # --- Interruptores de operaciones peligrosas (P1) ---
     # /reset solo existe con ENABLE_RESET=1; /switch-user solo con
     # app.debug y ENABLE_DEV_SWITCH=1 (además de ser administrador).
     ENABLE_RESET = _flag("ENABLE_RESET", "0")
     ENABLE_DEV_SWITCH = _flag("ENABLE_DEV_SWITCH", "0")
+    ENABLE_SCHEDULER = _flag("ENABLE_SCHEDULER", "0")
+
+    # --- Alertas automáticas (fase P6): job diario solo si ENABLE_SCHEDULER=1 ---
+    ENABLE_SCHEDULER = _flag("ENABLE_SCHEDULER", "0")
+    ALERTS_INTERVAL_HOURS = int(os.environ.get("ALERTS_INTERVAL_HOURS", "24"))
 
     # --- Emisor de facturas (RF-11) ---
     AGENCY_RNC = os.environ.get("AGENCY_RNC", "131456789")
@@ -89,6 +107,20 @@ class Config:
     NCF_PREFIX = os.environ.get("NCF_PREFIX", "B02")
     NCF_PREFIX_RNC = os.environ.get("NCF_PREFIX_RNC", "B01")
     NCF_CREDITO_PREFIX = os.environ.get("NCF_CREDITO_PREFIX", "B04")
+
+    # --- Documentos (RF-17, fase P6): fuera de static/, tope 5 MB ---
+    UPLOAD_DIR = os.environ.get("UPLOAD_DIR") or str(BASE_DIR / "uploads")
+    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", str(5 * 1024 * 1024)))
+
+    # --- Correo transaccional (RF-13, fase P6): sin MAIL_* se usa consola/log ---
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", "587"))
+    MAIL_USE_TLS = _flag("MAIL_USE_TLS", "1")
+    MAIL_USE_SSL = _flag("MAIL_USE_SSL", "0")
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME", "")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD", "")
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", "")
+    MAIL_SUPPRESS_SEND = _flag("MAIL_SUPPRESS_SEND", "0")
 
     # --- Límites de entrada (anti abuso) ---
     CHAT_MESSAGE_MAX_LENGTH = int(os.environ.get("CHAT_MESSAGE_MAX_LENGTH", "500"))
