@@ -1,6 +1,9 @@
 """Documentos de viaje (RF-17)."""
 from __future__ import annotations
 
+import calendar
+from datetime import date
+
 from ..extensions import db
 from .base import BaseEntity, utcnow
 
@@ -43,9 +46,25 @@ class TravelDocument(BaseEntity, db.Model):
 
     @property
     def expiry_status(self) -> str:
-        """Estado de vencimiento calculado (`vigente`/`por vencer`/`vencido`)."""
-        from ..documents import expiry_status as _status
-        return _status(self.expiry_date)
+        """Estado calculado del vencimiento, sin persistirlo en la BD."""
+        if self.expiry_date is None:
+            return "Vigente"
+
+        today = date.today()
+        if self.expiry_date < today:
+            return "Vencido"
+
+        month_index = today.month - 1 + 6
+        year = today.year + month_index // 12
+        month = month_index % 12 + 1
+        six_months_from_today = date(
+            year,
+            month,
+            min(today.day, calendar.monthrange(year, month)[1]),
+        )
+        if self.expiry_date < six_months_from_today:
+            return "Por vencer"
+        return "Vigente"
 
     def describe(self) -> str:
         return self.file_name or self.doc_type or "Documento"

@@ -22,7 +22,6 @@ def validate_required(fields: dict, required: list[str], path: str = "form") -> 
             errors.append(f"El campo '{field}' es obligatorio.")
     return errors
 
-
 def validate_email(email: str) -> bool:
     """Valida formato de email con expresión regular."""
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -124,6 +123,29 @@ def validate_room_count(
     return errors
 
 
+def validate_itinerary_content(content) -> list[str]:
+    """Valida el JSON de un itinerario (RF-10).
+
+    Estructura esperada: {"days": [{"dayNumber": int, "title": str, ...}, ...]}.
+    """
+    errors = []
+    if not isinstance(content, dict):
+        return ["El contenido del itinerario debe ser un objeto JSON."]
+    days = content.get("days")
+    if not isinstance(days, list) or not days:
+        errors.append("El itinerario debe tener al menos un día.")
+        return errors
+    for i, day in enumerate(days):
+        if not isinstance(day, dict):
+            errors.append(f"El día {i + 1} debe ser un objeto.")
+            continue
+        if not isinstance(day.get("dayNumber"), int):
+            errors.append(f"El día {i + 1} debe tener 'dayNumber' como entero.")
+        if not day.get("title"):
+            errors.append(f"El día {i + 1} debe tener 'title'.")
+    return errors
+
+
 # --- Catálogo (Fase P3) -------------------------------------------------
 # Reglas por recurso: campos requeridos, montos (>= 0) y enteros no negativos.
 CATALOG_RULES = {
@@ -184,78 +206,3 @@ def validate_room_types(data: dict) -> list[str]:
         errors += validate_positive_int(available, f"'{nombre}': unidades", minimum=0)
         i += 1
     return errors
-
-
-# --- Itinerarios (Fase P6, RF-10) ----------------------------------------
-# Esquema del contenido JSON, basado en el formato real del generador
-# (``ai_service.get_itinerary`` / respaldo por reglas). Obligatorias:
-# ``destination`` (texto) y ``days`` (lista no vacía de días con
-# ``dayNumber`` y ``title``). El resto recibe valores predeterminados.
-ITINERARY_DAY_TEXTS = ("morning", "afternoon", "evening")
-ITINERARY_MAX_DAYS = 60
-
-
-def validate_itinerary_content(data) -> tuple[dict, list[str]]:
-    """Valida y normaliza el contenido JSON de un itinerario.
-
-    Devuelve ``(contenido_limpio, errores)``. Si hay errores, el contenido
-    debe descartarse y responder 422 sin persistir nada.
-    """
-    errors = []
-    if not isinstance(data, dict):
-        return {}, ["El itinerario debe ser un objeto JSON."]
-    cleaned: dict = {}
-
-    destination = data.get("destination")
-    if not isinstance(destination, str) or not destination.strip():
-        errors.append("El campo 'destination' es obligatorio.")
-    else:
-        cleaned["destination"] = destination.strip()
-
-    days = data.get("days")
-    if not isinstance(days, list) or not days:
-        errors.append("El campo 'days' debe ser una lista no vacía.")
-        days = []
-    elif len(days) > ITINERARY_MAX_DAYS:
-        errors.append(f"El itinerario no puede superar {ITINERARY_MAX_DAYS} días.")
-    cleaned_days = []
-    for i, day in enumerate(days):
-        if not isinstance(day, dict):
-            errors.append(f"El día #{i + 1} debe ser un objeto JSON.")
-            continue
-        try:
-            number = int(day.get("dayNumber", i + 1))
-        except (TypeError, ValueError):
-            errors.append(f"El día #{i + 1} tiene 'dayNumber' inválido.")
-            continue
-        if number < 1:
-            errors.append(f"El día #{i + 1} tiene 'dayNumber' fuera de rango.")
-            continue
-        title = day.get("title")
-        if not isinstance(title, str) or not title.strip():
-            errors.append(f"El día #{i + 1} debe tener 'title'.")
-            continue
-        clean_day = {"dayNumber": number, "title": title.strip()}
-        for key in ITINERARY_DAY_TEXTS:
-            value = day.get(key, "")
-            clean_day[key] = value if isinstance(value, str) else str(value)
-        for key in ("transportIncluded", "mealPlan"):
-            if key in day and day[key] is not None:
-                value = day[key]
-                clean_day[key] = value if isinstance(value, str) else str(value)
-        cleaned_days.append(clean_day)
-    cleaned["days"] = cleaned_days
-
-    overview = data.get("overview", "")
-    cleaned["overview"] = overview if isinstance(overview, str) else str(overview)
-    weather = data.get("weatherAdvice", "")
-    cleaned["weatherAdvice"] = weather if isinstance(weather, str) else str(weather)
-    perks = data.get("includedPerks", [])
-    cleaned["includedPerks"] = [p for p in perks if isinstance(p, str)] \
-        if isinstance(perks, list) else []
-    try:
-        cleaned["estimatedBudgetUSD"] = max(0, int(data.get("estimatedBudgetUSD", 0) or 0))
-    except (TypeError, ValueError):
-        errors.append("El campo 'estimatedBudgetUSD' debe ser un número >= 0.")
-        cleaned["estimatedBudgetUSD"] = 0
-    return cleaned, errors

@@ -1,19 +1,19 @@
 # P6 — Acta de cierre: Itinerarios, documentos, alertas e IA
 
 > Evidencia de la fase P6 (servicios backend de RF-10, RF-13, RF-17 y
-> RF-20). Incluye el diagnóstico de brechas sobre la implementación previa
-> y las correcciones aplicadas en la rama `fase_p6`. Todos los números son
-> reproducibles con la sección final.
+> RF-20), actualizada tras integrar `origin/main` el 2026-10-15.
 >
-> Rama: `fase_p6`. **Sin merge ni push**: queda pendiente de revisión.
+> Rama: `fase_p6`. `origin/main` está integrado localmente; no se hizo push.
 > P3/P4 se consideran estables y no se refactorizan; P5 es de otro
-> compañero y queda fuera de esta fase.
+> compañero y queda fuera de esta fase. Las referencias de implementación
+> anteriores al apartado 11 son el registro histórico de la rama; si difieren,
+> el apartado 11 describe el estado integrado vigente.
 
 ## 1. Veredicto
 
 | Comprobación | Resultado |
 |---|---|
-| Suite automática | **324 passed, 0 failed** (151 s; el fallo OAuth preexistente no reprodujo en este entorno, sección 7.7) |
+| Suite automática integrada | **322 passed, 0 failed** (156.92 s; 5 warnings deprecación) |
 | Itinerarios CRUD por reserva con JSON validado | **PASS** (`POST\|GET\|PUT\|DELETE /bookings/<id>/itinerary`; 6 tests) |
 | Documentos: extensiones, firmas, 5 MB, UUID, descarga con propiedad | **PASS** (8 tests; ajeno → 403) |
 | Voucher PDF idempotente integrado a la confirmación | **PASS** (4 tests; fallo aislado con `VOUCHER_FALLIDO`) |
@@ -50,14 +50,14 @@ que este acta cierra por bloques:
 | Criterio del prompt | Estado | Evidencia |
 |---|---|---|
 | RF-10: conservar `/api/ai/generate-itinerary`; CRUD asociado a reserva, JSON validado, dueño sí / ajeno no, DELETE solo admin | Cubierto | 4 rutas + `validate_itinerary_content`, sección 5.1 |
-| RF-17 subida: `pdf/jpg/png`, `secure_filename`, magic bytes, no exe/firmas falsas/vacíos, 5 MB, `UPLOAD_DIR` fuera de `static/`, UUID, errores gestionados | Cubierto | `app/documents.py`, `MAX_CONTENT_LENGTH`, sección 5.2 |
+| RF-17 subida: `pdf/jpg/png`, `secure_filename`, magic bytes, no exe/firmas falsas/vacíos, 5 MB, `UPLOAD_DIR` fuera de `static/`, UUID, errores gestionados | Cubierto | `app/repositories/documents.py`, `MAX_CONTENT_LENGTH`, sección 5.2 |
 | RF-17 permisos: propia sí, ajena 403, eliminar solo admin | Cubierto | `download_document` (403 deliberado y documentado), matriz intacta |
-| Voucher PDF real al confirmar, idempotente, sin corromper la transacción | Cubierto | `ensure_voucher_pdf` post-commit + 5 ganchos, sección 5.3 |
+| Voucher PDF real al confirmar, idempotente, sin corromper la transacción | Cubierto | `store.generate_booking_voucher`, sección 5.3 |
 | Vencimiento `vigente/por vencer/vencido` calculado, con fronteras | Cubierto | `expiry_status` + propiedad del modelo, tests de límites |
-| RF-13 `NotificationRead`, 3 eventos, Flask-Mail con respaldo, try/except, sin PII ajena, sin commits del correo | Cubierto | `app/notify.py`, ganchos post-commit, sección 5.4 |
-| Alertas: 4 detecciones, `flask alerts run`, idempotencia + UNIQUE, auditado; scheduler solo con flag | Cubierto | `app/alerts.py`, CLI, `app/scheduler.py`, sección 5.5 |
+| RF-13 `NotificationRead`, 3 eventos, Flask-Mail con respaldo, try/except, sin PII ajena, sin commits del correo | Cubierto | `app/email_service.py`, ganchos post-commit, sección 5.4 |
+| Alertas: 4 detecciones, `flask alerts run`, idempotencia + UNIQUE, auditado; scheduler solo con flag | Cubierto | `app/alerts.py`, CLI y scheduler, sección 5.5 |
 | RF-20: sin PII a Gemini, esquema + defaults + respaldo, timeout/reintentos, persistencia con fecha, auditoría sin PII, agregados, chat por palabras | Cubierto | `app/ai_service.py`, `Setting.updated_at`, sección 5.6 |
-| Tests por bloque sin debilitar los existentes, sin credenciales reales | Cubierto | `tests/test_p6.py` (38 tests), sección 6 |
+| Tests por bloque sin debilitar los existentes, sin credenciales reales | Cubierto | `tests/test_p6_*.py`, sección 6 |
 | README + `.env.example` | Cubierto | sección P6 en README, vars ilustrativas |
 
 ## 4. Commits que componen el cierre de P6
@@ -83,7 +83,7 @@ que este acta cierra por bloques:
 
 ### 5.2 Documentos (RF-17, sin voucher)
 
-- `app/documents.py`: extensiones `pdf/jpg/jpeg/png`, firma por extensión
+- `app/repositories/documents.py`: extensiones `pdf/jpg/jpeg/png`, firma por extensión
   (`%PDF`, `FF D8 FF`, PNG), vacíos y > 5 MB rechazados, verificación
   post-escritura (incompleto → borra y error), UUID hex + extensión,
   borrado defensivo, `expiry_status` con meses naturales estrictos
@@ -113,7 +113,7 @@ que este acta cierra por bloques:
 - `notifications.event_key` UNIQUE (migración `e6ccd1447029`, reversible):
   confirmación/pago/cancelación no se duplican ante reprocesos
   (`_notify` omite si la clave existe).
-- `app/notify.py`: 3 plantillas (código/destino/importe/recibo, sin PII
+- `app/email_service.py`: 3 plantillas (código/destino/importe/recibo, sin PII
   ajena); SMTP solo con `MAIL_SERVER` + remitente, si no consola/log;
   `try/except` en el envío y en los 3 ganchos post-commit del store.
 - `Flask-Mail==0.10.0` fijada; `mail.init_app` inofensivo sin config.
@@ -150,19 +150,20 @@ que este acta cierra por bloques:
 - Chat: ya comparaba por palabras completas; cubierto con tests
   (`hi` vs `which`, mayúsculas, subcadenas como `Holanda`).
 
-## 6. Pruebas (38 en `tests/test_p6.py` + resto de suite)
+## 6. Pruebas P6 por bloque + resto de suite
 
 | Bloque | Cubre |
 |---|---|
 | Itinerarios (6) | crear+consultar, 6 inválidos → 422, edición, propiedad 404, CRUD del dueño, DELETE 403/200 |
 | Documentos (8) | `.exe`, firma falsa, vacío, pdf/jpg/png con bytes idénticos, > 5 MB, descarga 200/403, borrado fila+archivo, fronteras de vencimiento |
 | Voucher (4) | PDF válido, idempotencia, adopción heredada, fallo aislado con auditoría |
-| Notificaciones (5) | lectura individual, 3 eventos, anti-duplicados, SMTP caído, respaldo consola |
-| Alertas (7) | 4 detectores ±, CLI idempotente, UNIQUE en BD, seed-smoke |
-| IA (8) | prompts sin PII (×2), defaults/clamp, respaldo ante caída/JSON, timeout acotado, marca temporal, auditoría sin PII, chat |
+| Notificaciones | lectura individual, eventos y correo, SMTP caído, respaldo consola; incluye prueba de `event_key` |
+| Alertas | 4 detectores, CLI idempotente, UNIQUE en BD, scheduler apagado por defecto |
+| IA | prompts sin PII, normalización de respuestas, respaldo ante caída/JSON, timeout, persistencia, auditoría sin PII, chat |
 
-Comando: `python -m pytest tests -q` → **324 passed, 0 failed** (151 s).
-Relevantes: `test_p6 + test_ai_service` → 39 passed; permisos/matriz intactos.
+La suite antigua consolidada `tests/test_p6.py` fue retirada al integrarse los
+tests P6 actualizados, separados por bloque (`tests/test_p6_*.py`). El resultado
+final de la suite integrada se registra en el apartado 11.
 
 ## 7. Hallazgos corregidos en esta fase
 
@@ -180,8 +181,7 @@ Relevantes: `test_p6 + test_ai_service` → 39 passed; permisos/matriz intactos.
    verificado antes de continuar.
 5. **Chat**: se confirmó que ya usaba palabras completas; no hubo que
    corregirlo, solo cubrirlo.
-6. **Fallo OAuth preexistente**: no reprodujo en este entorno (suite 324/324
-   en verde); sigue asignado a otro compañero y no se tocó nada al respecto.
+6. **Fallo OAuth preexistente**: no reprodujo en esta ejecución; no se modificó.
 
 ## 8. Decisiones tomadas
 
@@ -208,13 +208,13 @@ Relevantes: `test_p6 + test_ai_service` → 39 passed; permisos/matriz intactos.
 ## 10. Cómo reproducir
 
 ```powershell
-# 1) Suite completa (324)
+# 1) Suite completa
 python -m pytest tests -q
 
-# 2) Solo P6 (38) + IA existente
-python -m pytest tests/test_p6.py tests/test_ai_service.py -q
+# 2) Tests P6 por bloque
+python -m pytest tests/test_p6_*.py tests/test_ai_privacy.py -q
 
-# 3) Migraciones P6 sobre SQLite (requieren el head b7a4d915c2f0)
+# 3) Migraciones P6 sobre SQLite
 $env:FLASK_APP="run.py"
 python -m flask db upgrade
 python -m flask db downgrade b7a4d915c2f0
@@ -234,3 +234,25 @@ git grep -n 'c\.name\|c\.email' -- app/ai_service.py # -> 0 (prompts sin PII)
 
 Credenciales demo (README): `admin@ddntravel.com`, `sofia.v@ddntravel.com`,
 `roberto.gomez@gmail.com` — clave `ddn123`.
+
+## 11. Integración con `origin/main` (2026-10-15)
+
+- Se integraron los cambios más recientes de `origin/main` con los dos commits
+  de `fase_p6`. Para las implementaciones duplicadas se conservaron los
+  archivos P6 más recientes y sus pruebas separadas por bloque.
+- Se mantuvieron además las migraciones locales `e6ccd1447029` (clave única
+  `notifications.event_key`) y `4743e90aee9d` (`settings.updated_at`).
+  `c914e8a73d20` une esas revisiones con la migración de alertas
+  `a41bd9e7206c`; Alembic queda con una sola cabeza.
+- Se preservó la idempotencia de notificaciones por `event_key` en el
+  repositorio y el store, con cobertura en
+  `test_event_key_hace_idempotente_la_creacion_de_notificaciones`.
+- Al combinarse, quedó duplicada una versión antigua de
+  `validate_itinerary_content`; se retiró para que las rutas usen el contrato
+  de lista de errores y los itinerarios vuelvan a aceptar los payloads válidos.
+- El test consolidado `tests/test_p6.py` comprobaba rutas y contratos de la
+  implementación previa y fallaba contra las API P6 actuales. Se retiró y se
+  conservaron los tests mantenidos en `tests/test_p6_*.py`.
+- `python -m pytest tests -q`: **322 passed, 0 failed**, 5 warnings en 156.92 s.
+- `flask db heads`: una sola cabeza, `c914e8a73d20`.
+- `git diff --check`: limpio tras resolver la última línea en blanco.

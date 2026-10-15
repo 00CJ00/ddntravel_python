@@ -4,6 +4,7 @@ from __future__ import annotations
 from sqlalchemy import desc
 
 from .. import models as m
+from ..extensions import db
 from .base import all_of, get, save
 
 
@@ -15,6 +16,12 @@ def get_notification(ident):
     return get(m.Notification, ident)
 
 
+def get_by_event_key(event_key):
+    if not event_key:
+        return None
+    return m.Notification.query.filter_by(event_key=event_key).first()
+
+
 def create_notification(title, message, ntype="info", link_tab=None, visible_roles=None,
                         date_text="Justo ahora", event_key=None):
     return save(m.Notification(
@@ -23,31 +30,33 @@ def create_notification(title, message, ntype="info", link_tab=None, visible_rol
     ))
 
 
-def get_by_event_key(event_key):
-    """Devuelve la notificación con esa clave anti-duplicados o ``None``."""
-    if not event_key:
-        return None
-    return m.Notification.query.filter_by(event_key=event_key).first()
+def read_ids_for_user(user_id) -> set[int]:
+    return {
+        row.notification_id
+        for row in m.NotificationRead.query.filter_by(user_id=user_id).all()
+    }
 
 
-def get_read(notification_id, user_id):
-    """Marca de lectura de un usuario o ``None``."""
-    if notification_id is None or user_id is None:
-        return None
-    return m.NotificationRead.query.filter_by(
-        notification_id=notification_id, user_id=user_id).first()
+def _visible_to_role(notif, role) -> bool:
+    return notif.visible_roles is None or role in notif.visible_roles
 
 
-def mark_read_by(notif, user_id) -> None:
-    """Registra la lectura de un usuario (idempotente, por usuario)."""
-    if user_id is None or get_read(notif.id, user_id) is not None:
+def mark_read(notif, user_id) -> None:
+    if user_id is None:
         return
-    save(m.NotificationRead(notification_id=notif.id, user_id=user_id))
+    existing = m.NotificationRead.query.filter_by(
+        notification_id=notif.id, user_id=user_id).first()
+    if existing is None:
+        save(m.NotificationRead(notification_id=notif.id, user_id=user_id))
 
 
-def mark_read(notif, user=None) -> None:
-    notif.read = True
-
-
-def mark_all_read() -> None:
-    m.Notification.query.update({m.Notification.read: True}, synchronize_session=False)
+def mark_all_read(user_id, role) -> None:
+    if user_id is None:
+        return
+    already_read = read_ids_for_user(user_id)
+    for notif in list_notifications():
+        if _visible_to_role(notif, role) and notif.id not in already_read:
+            db.session.add(m.NotificationRead(
+                notification_id=notif.id,
+                user_id=user_id,
+            ))

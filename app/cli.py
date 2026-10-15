@@ -75,16 +75,18 @@ def backup_command(backup_dir, keep, restore_file) -> None:
 
 
 @click.group("alerts")
-def alerts_group() -> None:
-    """Alertas automáticas de la agencia (fase P6)."""
+def alerts_command() -> None:
+    """Administra las alertas automáticas."""
 
 
-@alerts_group.command("run")
+@alerts_command.command("run")
 @with_appcontext
-def alerts_run() -> None:
-    """Detecta y registra las alertas (idempotente: repetir no duplica)."""
-    from . import alerts as alerts_module
-    from .store import store
-    counts = alerts_module.run_alerts(store)
-    click.echo(f"Alertas: {counts['created']} creadas, "
-               f"{counts['skipped']} omitidas ({counts['total']} detectadas).")
+def run_alerts_command() -> None:
+    """Evalúa y crea las alertas pendientes para la fecha de ejecución."""
+    from .alerts import run_alerts
+
+    try:
+        created = run_alerts()
+    except Exception as exc:
+        raise click.ClickException(f"No se pudieron ejecutar las alertas: {exc}") from exc
+    click.echo(f"Alertas creadas: {created}")

@@ -8,6 +8,7 @@ import re
 import datetime
 from datetime import date
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -256,6 +257,61 @@ def generar_pdf_factura(
         )
 
     # Construir PDF y devolver bytes
+    doc.build(elements)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes
+
+
+def generar_pdf_voucher(booking, client) -> bytes:
+    """Genera el voucher PDF de una reserva confirmada."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        right=20 * mm,
+        left=20 * mm,
+        top=20 * mm,
+        bottom=20 * mm,
+    )
+    styles = getSampleStyleSheet()
+    client_name = getattr(client, "name", None) or "Cliente"
+    details = [
+        ("Código de reserva", booking.booking_code),
+        ("Cliente", client_name),
+        ("Destino", booking.destination_name or "Por definir"),
+        ("Paquete", booking.package_name or "No especificado"),
+        ("Hotel", booking.hotel_name or "No especificado"),
+        ("Salida", booking.departure_date or "Por definir"),
+        ("Regreso", booking.return_date or "Por definir"),
+        ("Viajeros", booking.travelers or 1),
+        ("Total", f"${float(booking.total_price or 0):,.2f} USD"),
+    ]
+    table_data = [
+        [Paragraph(f"<b>{escape(str(label))}</b>", styles["BodyText"]),
+         Paragraph(escape(str(value)), styles["BodyText"])]
+        for label, value in details
+    ]
+    elements = [
+        Paragraph("VOUCHER DE RESERVA", styles["Title"]),
+        Spacer(1, 12),
+        Table(
+            table_data,
+            colWidths=[2 * inch, 4.5 * inch],
+            style=TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f1f5f9")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]),
+        ),
+        Spacer(1, 12),
+        Paragraph("Conserve este voucher y preséntelo durante su viaje.",
+                  styles["BodyText"]),
+    ]
     doc.build(elements)
     pdf_bytes = buffer.getvalue()
     buffer.close()

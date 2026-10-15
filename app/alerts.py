@@ -1,205 +1,194 @@
-"""Alertas automáticas de DDN Travel (fase P6).
-
-Detecta pasaportes próximos a vencer, saldos pendientes con salida cercana,
-paquetes con pocos cupos y reservas estancadas sin pago. Cada alerta tiene
-una identidad estable ``alerta:tipo:entidad:id:fecha`` que se guarda en
-``Notification.event_key`` (UNIQUE): repetir la ejecución (o dos procesos a
-la vez) no duplica. Solo confirma por alerta; un duplicado en carrera hace
-rollback de esa alerta sin abortar el lote.
-"""
+"""Generación idempotente de alertas automáticas (RF-13)."""
 from __future__ import annotations
 
-import datetime
-import logging
+import calendar
+from datetime import date, datetime, timedelta, timezone
 
-log = logging.getLogger(__name__)
+from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy.exc import IntegrityError
 
-KIND_PASSPORT = "passport_expiry"
-KIND_BALANCE = "pending_balance"
-KIND_AVAILABILITY = "low_availability"
-KIND_STALE = "stale_pending"
+from . import audit
+from . import models as m
+from .extensions import db
+from .repositories import notifications as notifications_repo
+from .repositories.base import to_decimal
+
+STAFF_ROLES = ["admin", "employee"]
 
 
-def _today() -> datetime.date:
-    return datetime.date.today()
+def _add_months(value: date, months: int) -> date:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
 
 
-def _as_date(value):
-    if value in (None, ""):
-        return None
-    if isinstance(value, datetime.datetime):
-        return value.date()
-    if isinstance(value, datetime.date):
-        return value
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _candidates(run_date: date, now: datetime):
+    bookings = m.Booking.query.filter(
+        m.Booking.deleted_at.is_(None),
+        m.Booking.status.notin_(("Cancelada", "Completada")),
+    ).all()
+    packages = m.Package.query.filter(m.Package.deleted_at.is_(None)).all()
+    paid_booking_ids = {
+        booking_id
+        for (booking_id,) in db.session.query(m.Payment.booking_id).filter(
+            m.Payment.kind == "pago",
+            m.Payment.status != "Anulado",
+        ).all()
+    }
+    passport_expiries = {
+        client.id: client.passport_expiry
+        for client in m.Client.query.filter(m.Client.passport_expiry.isnot(None)).all()
+    }
+    for document in m.TravelDocument.query.filter(
+        m.TravelDocument.expiry_date.isnot(None)
+    ).all():
+        if "pasaporte" in (document.doc_type or "").casefold():
+            existing = passport_expiries.get(document.client_id)
+            if existing is None or document.expiry_date < existing:
+                passport_expiries[document.client_id] = document.expiry_date
+
+    for booking in bookings:
+        departure = booking.departure_date
+        expiry = passport_expiries.get(booking.client_id)
+        if (departure is not None and departure >= run_date and expiry is not None
+                and expiry < _add_months(departure, 6)):
+            yield (
+                "passport_expiring",
+                "booking",
+                booking.id,
+                "Pasaporte próximo a vencer",
+                (
+                    f"El pasaporte del cliente de la reserva {booking.booking_code} "
+                    "vence antes de cumplir seis meses de vigencia desde la salida."
+                ),
+            )
+
+        if departure is not None:
+            days_until_departure = (departure - run_date).days
+            balance = max(
+                0,
+                to_decimal(booking.total_price) - to_decimal(booking.amount_paid),
+            )
+            if 0 <= days_until_departure <= 15 and balance > 0:
+                yield (
+                    "balance_due_before_departure",
+                    "booking",
+                    booking.id,
+                    "Saldo pendiente antes de la salida",
+                    (
+                        f"La reserva {booking.booking_code} sale en {days_until_departure} "
+                        f"días y tiene un saldo pendiente de ${balance:.2f} USD."
+                    ),
+                )
+
+        if (booking.status == "Pendiente"
+                and to_decimal(booking.amount_paid) == 0
+                and booking.id not in paid_booking_ids
+                and booking.created_at is not None
+                and _aware_utc(booking.created_at) < now - timedelta(hours=72)):
+            yield (
+                "pending_booking_no_payment",
+                "booking",
+                booking.id,
+                "Reserva pendiente sin pago",
+                (
+                    f"La reserva {booking.booking_code} lleva más de 72 horas pendiente "
+                    "y aún no tiene pagos registrados."
+                ),
+            )
+
+    for package in packages:
+        total_slots = int(package.total_slots or 0)
+        available_slots = int(package.available_slots or 0)
+        if total_slots > 0 and available_slots * 5 <= total_slots:
+            yield (
+                "package_low_availability",
+                "package",
+                package.id,
+                "Paquete con pocos cupos",
+                (
+                    f"El paquete {package.title} tiene {available_slots} de "
+                    f"{total_slots} cupos disponibles (20 % o menos)."
+                ),
+            )
+
+
+def run_alerts(*, run_date: date | None = None, now: datetime | None = None) -> int:
+    """Crea notificaciones por regla y devuelve cuántas se insertaron."""
+    current_time = _aware_utc(now or datetime.now(timezone.utc))
+    execution_date = run_date or current_time.date()
+    created = 0
     try:
-        return datetime.date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
+        for alert_type, entity_type, entity_id, title, message in _candidates(
+            execution_date, current_time
+        ):
+            key = {
+                "alert_type": alert_type,
+                "entity_type": entity_type,
+                "entity_id": str(entity_id),
+                "run_date": execution_date,
+            }
+            if m.AlertRecord.query.filter_by(**key).first() is not None:
+                continue
 
-
-def _as_naive_utc(value):
-    if value is None:
-        return None
-    if isinstance(value, datetime.datetime) and value.tzinfo is not None:
-        return value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-    return value
-
-
-def _departure_of(booking):
-    return _as_date(getattr(booking, "departure_date", None)
-                    or getattr(booking, "check_in", None))
-
-
-def _active_bookings(store):
-    return [b for b in store.bookings if getattr(b, "status", None) != "Cancelada"]
-
-
-def _has_valid_payment(store, booking) -> bool:
-    """Algún pago `Completado` de kind pago (no reembolsos ni anulados)."""
-    return any(p.booking_id == booking.id and p.status == "Completado"
-               and p.kind != "reembolso" for p in store.payments)
-
-
-def detect_passport_expiry(store, today=None) -> list:
-    """Pasaporte que vence antes de que pasen 6 meses desde la salida."""
-    from .documents import add_months
-    today = today or _today()
-    found = []
-    for booking in _active_bookings(store):
-        departure = _departure_of(booking)
-        if departure is None or departure < today:
-            continue
-        client = next((c for c in store.clients if c.id == booking.client_id), None)
-        expiry = _as_date(getattr(client, "passport_expiry", None)) if client else None
-        if expiry is None or expiry >= add_months(departure, 6):
-            continue
-        found.append({
-            "kind": KIND_PASSPORT, "entity_type": "Booking",
-            "entity_id": booking.id,
-            "title": "Pasaporte por vencer",
-            "message": (f"El pasaporte del cliente {booking.client_name} vence el "
-                        f"{expiry.isoformat()}, con salida el {departure.isoformat()} "
-                        f"(reserva {booking.booking_code})."),
-            "link_tab": "clients",
-        })
-    return found
-
-
-def detect_pending_balance(store, today=None) -> list:
-    """Saldo pendiente con salida en ≤ 15 días (hoy incluido)."""
-    today = today or _today()
-    limit = today + datetime.timedelta(days=15)
-    found = []
-    for booking in _active_bookings(store):
-        departure = _departure_of(booking)
-        if departure is None or not (today <= departure <= limit):
-            continue
-        balance = float(getattr(booking, "total_price", 0) or 0) \
-            - float(getattr(booking, "amount_paid", 0) or 0)
-        if balance <= 0:
-            continue
-        found.append({
-            "kind": KIND_BALANCE, "entity_type": "Booking",
-            "entity_id": booking.id,
-            "title": "Saldo pendiente con salida próxima",
-            "message": (f"La reserva {booking.booking_code} sale el "
-                        f"{departure.isoformat()} con saldo pendiente de "
-                        f"${balance:,.2f} USD."),
-            "link_tab": "bookings",
-        })
-    return found
-
-
-def detect_low_availability(store) -> list:
-    """Paquetes con cupos disponibles ≤ 20 % del total real."""
-    found = []
-    for package in store.packages:
-        total = int(getattr(package, "total_slots", 0) or 0) \
-            or int(getattr(package, "max_capacity", 0) or 0)
-        if total <= 0:
-            continue
-        available = int(getattr(package, "available_slots", 0) or 0)
-        if available / total > 0.2:
-            continue
-        found.append({
-            "kind": KIND_AVAILABILITY, "entity_type": "Package",
-            "entity_id": package.id,
-            "title": "Paquete con pocos cupos",
-            "message": (f"El paquete {package.title} solo tiene {available} de "
-                        f"{total} cupos disponibles (≤ 20 %)."),
-            "link_tab": "dashboard",
-        })
-    return found
-
-
-def detect_stale_pending(store, now=None) -> list:
-    """Reservas `Pendiente` sin pago válido por más de 72 horas."""
-    now = _as_naive_utc(now) or datetime.datetime.now()
-    cutoff = now - datetime.timedelta(hours=72)
-    found = []
-    for booking in store.bookings:
-        if getattr(booking, "status", None) != "Pendiente":
-            continue
-        created = _as_naive_utc(getattr(booking, "created_at", None))
-        if created is None or created >= cutoff:
-            continue
-        if _has_valid_payment(store, booking):
-            continue
-        found.append({
-            "kind": KIND_STALE, "entity_type": "Booking",
-            "entity_id": booking.id,
-            "title": "Reserva pendiente sin pago",
-            "message": (f"La reserva {booking.booking_code} lleva más de 72 h "
-                        f"en Pendiente sin ningún pago válido."),
-            "link_tab": "bookings",
-        })
-    return found
-
-
-def detect_all(store, today=None, now=None) -> list:
-    """Las cuatro detecciones juntas (sin efectos secundarios)."""
-    return (detect_passport_expiry(store, today)
-            + detect_pending_balance(store, today)
-            + detect_low_availability(store)
-            + detect_stale_pending(store, now))
-
-
-def alert_key(alert, day=None) -> str:
-    """Identidad estable entidad + tipo + fecha (clave UNIQUE)."""
-    day = day or _today().isoformat()
-    return f"alert:{alert['kind']}:{alert['entity_type']}:{alert['entity_id']}:{day}"
-
-
-def run_alerts(store, user=None, today=None, now=None) -> dict:
-    """Genera las notificaciones de alerta (idempotente) y audita la corrida.
-
-    Cada alerta confirma por separado: si otra ejecución la creó primero, se
-    revierte solo esa y el lote continúa. Devuelve conteos.
-    """
-    from sqlalchemy.exc import IntegrityError
-
-    created, skipped = 0, 0
-    day = today.isoformat() if isinstance(today, datetime.date) else None
-    for alert in detect_all(store, today, now):
-        key = alert_key(alert, day)
-        try:
-            if store.add_notification(
-                    alert["title"], alert["message"], "warning",
-                    alert["link_tab"], event_key=key):
+            try:
+                with db.session.begin_nested():
+                    notification = notifications_repo.create_notification(
+                        title,
+                        message,
+                        ntype="warning",
+                        link_tab="bookings" if entity_type == "booking" else "catalog",
+                        visible_roles=STAFF_ROLES,
+                    )
+                    record = m.AlertRecord(
+                        **key,
+                        notification_id=notification.id,
+                    )
+                    db.session.add(record)
+                    db.session.flush()
+                    audit.record(
+                        "GENERAR_ALERTA",
+                        "Notificaciones",
+                        record,
+                        details=f"Alerta {alert_type} para {entity_type} {entity_id}.",
+                    )
                 created += 1
-            else:
-                skipped += 1
-        except IntegrityError:
-            # Otra ejecución concurrente la registró primero.
-            store._rollback()
-            skipped += 1
-        except Exception as exc:  # noqa: BLE001 - una alerta no tumba el lote
-            store._rollback()
-            log.warning("Alerta omitida (%s): %s", key, exc)
-            skipped += 1
-    store.log_action(getattr(user, "id", None) if user else "system",
-                     getattr(user, "name", None) if user else "Sistema",
-                     "ALERTAS_GENERADAS", "Alertas",
-                     f"Alertas automáticas: {created} creadas, {skipped} omitidas.")
-    return {"created": created, "skipped": skipped,
-            "total": created + skipped}
+            except IntegrityError:
+                duplicate = m.AlertRecord.query.filter_by(**key).first()
+                if duplicate is None:
+                    raise
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    return created
+
+
+def start_scheduler(app):
+    """Programa la evaluación diaria; el caller controla el interruptor."""
+    scheduler = BackgroundScheduler(timezone="UTC")
+
+    def run_in_app_context():
+        with app.app_context():
+            run_alerts()
+
+    scheduler.add_job(
+        run_in_app_context,
+        trigger="cron",
+        hour=2,
+        minute=0,
+        id="ddn-travel-daily-alerts",
+        replace_existing=True,
+    )
+    scheduler.start()
+    app.extensions["ddn_travel_alert_scheduler"] = scheduler
+    return scheduler

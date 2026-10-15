@@ -115,8 +115,11 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "ai:recommend": frozenset({"admin", "employee", "client"}),
     "ai:itinerary": frozenset({"admin", "employee", "client"}),
 
-    # --- Itinerarios guardados (RF-10, fase P6) ---
-    "itinerary:delete": frozenset({"admin"}),
+    # --- Itinerarios (RF-10) ---
+    "itineraries:view": frozenset({"admin", "employee", "client"}),
+    "itineraries:create": frozenset({"admin", "employee", "client"}),
+    "itineraries:edit": frozenset({"admin", "employee", "client"}),
+    "itineraries:delete": frozenset({"admin"}),
 
     # --- Portal y varios ---
     "portal:view": frozenset({"client"}),
@@ -185,16 +188,10 @@ ENDPOINT_PERMISSIONS: dict[str, str] = {
     "main.toggle_promotion": "promotions:toggle",
     "main.preview_promo": "promotions:apply",
     "main.new_document": "documents:create",
-    "main.upload_document": "documents:create",
-    "main.download_document": "documents:view",
     "main.delete_document": "documents:delete",
     "main.api_predictive_analytics": "ai:predictive_run",
     "main.api_recommendations": "ai:recommend",
     "main.api_generate_itinerary": "ai:itinerary",
-    "main.get_itinerary": "ai:itinerary",
-    "main.save_itinerary": "ai:itinerary",
-    "main.update_itinerary": "ai:itinerary",
-    "main.delete_itinerary": "itinerary:delete",
     "main.verify_payment": "payments:create",
     "main.edit_booking": "bookings:edit",
     "main.admin_users": "users:manage",

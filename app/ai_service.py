@@ -14,10 +14,13 @@ motivo, cada función retorna una respuesta simulada de alta fidelidad (igual
 que hacía el código original) para que la demo nunca se quede "rota".
 """
 from __future__ import annotations
-import concurrent.futures
-import os
+
 import json
+import logging
+import math
+import os
 import time
+from copy import deepcopy
 
 try:
     from google import genai
@@ -27,260 +30,130 @@ except ImportError:  # el paquete es opcional hasta que se instale
     genai_types = None
 
 MODELS_TO_TRY = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"]
-
-# Tiempo máximo por llamada al proveedor y reintentos solo ante fallos
-# transitorios (red, timeout, 429/503). Acotado: como máximo 2 intentos por
-# modelo y sin espera entre modelos distintos.
-AI_TIMEOUT_SECONDS = 20
-AI_MAX_ATTEMPTS_PER_MODEL = 2
-AI_RETRY_SLEEP_SECONDS = 0.8
-
-# Metadatos de la última llamada (para auditoría sin PII). Se actualizan en
-# cada invocación a `generate_gemini_json`.
-last_provider: str = "fallback"
-last_used_model: str | None = None
+GEMINI_TIMEOUT_MS = 15_000
+MAX_ATTEMPTS_PER_MODEL = 2
+RETRY_DELAY_SECONDS = 0.4
 
 _client = None
 
 
 def _get_client():
-    """Inicializa (una sola vez) el cliente de Gemini de forma perezosa."""
+    """Inicializa el cliente de Gemini con límite de tiempo para cada petición."""
     global _client
     if _client is not None:
         return _client
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key or genai is None:
         raise RuntimeError("GEMINI_API_KEY no está configurada o falta el paquete google-genai")
-    _client = genai.Client(api_key=api_key)
+    _client = genai.Client(
+        api_key=api_key,
+        http_options=genai_types.HttpOptions(timeout=GEMINI_TIMEOUT_MS),
+    )
     return _client
 
 
-def _transient_failure(message: str) -> bool:
-    """Indica si el error parece transitorio (reintentable una vez)."""
-    lowered = (message or "").lower()
-    return ("timeout" in lowered or "timed out" in lowered
-            or any(code in message for code in
-                   ["503", "429", "UNAVAILABLE", "quota", "high demand",
-                    "temporarily", "try again", "overloaded"]))
+def _normalize_json(value, schema):
+    """Valida tipos y claves requeridas usando un objeto default como esquema."""
+    if isinstance(schema, dict):
+        source = value if isinstance(value, dict) else {}
+        return {
+            key: _normalize_json(source.get(key), default)
+            for key, default in schema.items()
+        }
+
+    if isinstance(schema, list):
+        if not isinstance(value, list):
+            return deepcopy(schema)
+        if not schema:
+            return value
+        example = schema[0]
+        if isinstance(example, dict):
+            return [_normalize_json(item, example) for item in value if isinstance(item, dict)]
+        return [
+            _normalize_json(item, example)
+            for item in value
+            if isinstance(item, type(example))
+        ]
+
+    if isinstance(schema, bool):
+        return value if isinstance(value, bool) else schema
+    if isinstance(schema, int):
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(float(value)) and float(value).is_integer()):
+            return int(value)
+        return schema
+    if isinstance(schema, float):
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(float(value))):
+            return float(value)
+        return schema
+    if isinstance(schema, str):
+        return value if isinstance(value, str) else schema
+    return deepcopy(schema)
 
 
-def _call_with_timeout(client, model: str, prompt: str, timeout: float):
-    """Una llamada al proveedor con límite de tiempo.
+def _is_retryable(error: Exception) -> bool:
+    message = str(error).casefold()
+    retry_terms = (
+        "429", "503", "unavailable", "quota", "high demand",
+        "timeout", "timed out", "connection reset", "temporarily unavailable",
+    )
+    return (
+        isinstance(error, (TimeoutError, ConnectionError, json.JSONDecodeError))
+        or any(term in message for term in retry_terms)
+    )
 
-    La firma de `generate_content` se conserva intacta (tests y SDK).
-    Lanza `TimeoutError` si excede el límite; el hilo huérfano se abandona
-    sin bloquear la petición.
+
+def generate_gemini_json(prompt: str, fallback_fn, *, validate: bool = False):
     """
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    try:
-        future = executor.submit(
-            client.models.generate_content,
-            model=model,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(response_mime_type="application/json"),
-        )
-        return future.result(timeout=timeout)
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
-
-
-def generate_gemini_json(prompt: str, fallback_fn, *, schema=None,
-                         timeout: float = AI_TIMEOUT_SECONDS):
+    Llama a Gemini con reintentos acotados, valida la forma de la respuesta y
+    aplica los defaults del respaldo cuando falten campos o tengan tipos inválidos.
     """
-    Llama a Gemini pidiendo una respuesta JSON, con timeout, reintentos
-    acotados solo ante fallos transitorios y validación opcional de esquema.
-    Si todo falla (o la respuesta no cumple el esquema), devuelve el
-    resultado de `fallback_fn()`. Nunca lanza por causas del proveedor.
-    """
-    global last_provider, last_used_model
-    last_provider, last_used_model = "fallback", None
+    fallback = fallback_fn()
     last_error = None
     try:
         client = _get_client()
         for model in MODELS_TO_TRY:
-            for attempt in range(AI_MAX_ATTEMPTS_PER_MODEL):
+            for attempt in range(MAX_ATTEMPTS_PER_MODEL):
                 try:
-                    response = _call_with_timeout(client, model, prompt, timeout)
-                    if response.text:
-                        parsed = json.loads(response.text)
-                        if schema is not None:
-                            cleaned = schema(parsed)
-                            if cleaned is None:
-                                last_error = ValueError("respuesta fuera de esquema")
-                                break  # probar con el siguiente modelo
-                            parsed = cleaned
-                        last_provider, last_used_model = "gemini", model
-                        return parsed
-                    break
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=genai_types.GenerateContentConfig(
+                            response_mime_type="application/json"),
+                    )
+                    if not response.text:
+                        raise ValueError("Gemini devolvió una respuesta vacía.")
+                    result = json.loads(response.text)
+                    return _normalize_json(result, fallback) if validate else result
                 except Exception as err:  # noqa: BLE001
                     last_error = err
-                    if _transient_failure(str(err)) \
-                            and attempt + 1 < AI_MAX_ATTEMPTS_PER_MODEL:
-                        time.sleep(AI_RETRY_SLEEP_SECONDS)
+                    if (attempt + 1 < MAX_ATTEMPTS_PER_MODEL
+                            and _is_retryable(err)):
+                        time.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
                         continue
                     break
     except Exception as err:  # noqa: BLE001
         last_error = err
 
-    print(f"[ai_service] Gemini no disponible, usando generador de respaldo: {last_error}")
-    return fallback_fn()
-
-
-# ----------------------------------------------------------------------
-# Privacidad y esquemas de salida (fase P6, RF-20)
-# ----------------------------------------------------------------------
-def anonymize_clients(clients: list, limit: int = 10) -> list:
-    """Resume clientes con alias (`Cliente A`) en vez de datos personales.
-
-    Nunca incluye nombres, emails, documentos, teléfonos ni pasaportes: solo
-    alias, categoría, presupuesto y conteos agregados.
-    """
-    summary = []
-    for i, client in enumerate(clients[:limit]):
-        alias = f"Cliente {chr(ord('A') + (i % 26))}"
-        summary.append({
-            "alias": alias,
-            "category": getattr(client, "category", "") or "",
-            "budget": getattr(client, "budget_preference", "") or "",
-            "tripsCount": int(getattr(client, "trips_count", 0) or 0),
-            "preferredDestinations":
-                list(getattr(client, "preferred_destinations", []) or []),
-        })
-    return summary
-
-
-def sanitize_profile(profile: dict) -> dict:
-    """Perfil mínimo para recomendaciones: alias + categoría + presupuesto.
-
-    Descarta nombres, emails, documentos, teléfonos y cualquier otra clave
-    identificativa que envíe el frontend.
-    """
-    profile = profile if isinstance(profile, dict) else {}
-    return {
-        "alias": "Cliente interesado",
-        "category": str(profile.get("category", "") or ""),
-        "budget_preference": str(profile.get("budget_preference", "")
-                                 or profile.get("budget", "") or ""),
-    }
-
-
-def aggregate_signals(clients: list, bookings: list) -> dict:
-    """Agregados no identificativos para enriquecer recomendaciones.
-
-    Vive aquí (y no en `app/analytics.py`, de P5) para no invadir esa fase:
-    clientes frecuentes (≥ 3 viajes), top destinos y meses de temporada alta.
-    """
-    from collections import Counter
-    frequent = sum(1 for c in clients if (getattr(c, "trips_count", 0) or 0) >= 3)
-    top_destinations = [name for name, _ in Counter(
-        (getattr(b, "destination_name", "") or "") for b in bookings
-        if getattr(b, "destination_name", "")).most_common(5)]
-    months = Counter()
-    for booking in bookings:
-        created = getattr(booking, "created_at", None)
-        month = getattr(created, "month", None)
-        if month:
-            months[month] += 1
-    average = (sum(months.values()) / 12) if months else 0
-    high_season = sorted(m for m, n in months.items() if average and n > 1.25 * average)
-    return {"frequent_clients": frequent, "top_destinations": top_destinations,
-            "high_season_months": high_season}
-
-
-def _clamp_number(value, minimum=None, maximum=None, default=0):
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return default
-    if minimum is not None:
-        number = max(minimum, number)
-    if maximum is not None:
-        number = min(maximum, number)
-    return number
-
-
-def validate_predictive(data) -> dict | None:
-    """Esquema del análisis predictivo. `None` = usar respaldo."""
-    if not isinstance(data, dict):
-        return None
-    summary = data.get("summary")
-    if not isinstance(summary, str) or not summary.strip():
-        return None
-    if not isinstance(data.get("purchasePropensityIndex"), (int, float)):
-        return None
-    if not isinstance(data.get("nextQuarterForecastRevenue"), (int, float)):
-        return None
-    cleaned = {
-        "summary": summary.strip(),
-        "purchasePropensityIndex": int(_clamp_number(
-            data.get("purchasePropensityIndex"), 0, 100, 0)),
-        "nextQuarterForecastRevenue": _clamp_number(
-            data.get("nextQuarterForecastRevenue"), 0, None, 0),
-        "growthRateProjected": _clamp_number(data.get("growthRateProjected"), None, None, 0),
-        "customerSegmentsBehavior": data.get("customerSegmentsBehavior", []) or [],
-        "topPredictedDestinations": data.get("topPredictedDestinations", []) or [],
-        "seasonalityAlerts": data.get("seasonalityAlerts", []) or [],
-        "churnPreventionInsights": data.get("churnPreventionInsights", []) or [],
-        "strategicRecommendations": data.get("strategicRecommendations", []) or [],
-    }
-    for key in ("customerSegmentsBehavior", "topPredictedDestinations",
-                "seasonalityAlerts", "churnPreventionInsights",
-                "strategicRecommendations"):
-        if not isinstance(cleaned[key], list):
-            cleaned[key] = []
-    return cleaned
-
-
-def validate_recommendations(data) -> dict | None:
-    """Esquema de recomendaciones. `None` = usar respaldo."""
-    if not isinstance(data, dict):
-        return None
-    packages = data.get("recommendedPackages", [])
-    if not isinstance(packages, list) or not packages:
-        return None
-    clean_packages = []
-    for package in packages:
-        if not isinstance(package, dict):
-            continue
-        title = package.get("title")
-        if not isinstance(title, str) or not title.strip():
-            continue
-        clean_packages.append({
-            "title": title.strip(),
-            "destination": str(package.get("destination", "") or ""),
-            "estimatedPricePerPerson": _clamp_number(
-                package.get("estimatedPricePerPerson", 0), 0, None, 0),
-            "matchReason": str(package.get("matchReason", "") or ""),
-            "highlights": [h for h in (package.get("highlights", []) or [])
-                           if isinstance(h, str)],
-            "recommendedDuration": str(package.get("recommendedDuration", "") or ""),
-            "bestSeason": str(package.get("bestSeason", "") or ""),
-        })
-    if not clean_packages:
-        return None
-    tips = data.get("smartTips", [])
-    return {
-        "affinityScore": int(_clamp_number(data.get("affinityScore", 0), 0, 100, 0)),
-        "profileSummary": str(data.get("profileSummary", "") or ""),
-        "recommendedPackages": clean_packages,
-        "smartTips": [t for t in tips if isinstance(t, str)] if isinstance(tips, list) else [],
-    }
-
-
-def validate_itinerary_result(data) -> dict | None:
-    """Esquema del itinerario generado (reutiliza el validador RF-10)."""
-    from .validators import validate_itinerary_content
-    cleaned, errors = validate_itinerary_content(data)
-    return cleaned if not errors else None
+    logging.getLogger(__name__).warning(
+        "Gemini no disponible; se usará la respuesta local de respaldo: %s",
+        last_error,
+    )
+    return _normalize_json(fallback, fallback) if validate else fallback
 
 
 # ----------------------------------------------------------------------
 # 1. Estadísticas predictivas de comportamiento de compra (RF-20)
 # ----------------------------------------------------------------------
 def get_predictive_analytics(clients: list, bookings: list, packages: list, timeframe: str) -> dict:
-    # Privacidad P6: al proveedor solo viajan alias y agregados, nunca
-    # nombres, emails, documentos ni pasaportes.
-    clients_summary = anonymize_clients(clients)
+    # Privacidad (RF-20): NO enviar nombres reales a Gemini. Se usan alias
+    # secuenciales ("Cliente A", "Cliente B"...) y solo datos agregados.
+    clients_summary = [
+        {"name": f"Cliente {chr(65 + i)}", "category": c.category, "budget": c.budget_preference,
+         "tripsCount": c.trips_count, "preferredDestinations": getattr(c, "preferred_destinations", [])}
+        for i, c in enumerate(clients[:10])
+    ]
     bookings_summary = [
         {"destination": b.destination_name, "total": float(b.total_price or 0), "status": b.status,
          "travelerCount": b.travelers}
@@ -382,29 +255,24 @@ Tu respuesta debe ser un análisis estadístico predictivo exhaustivo y accionab
             ],
         }
 
-    return generate_gemini_json(prompt, fallback, schema=validate_predictive)
+    return generate_gemini_json(prompt, fallback, validate=True)
 
 
 # ----------------------------------------------------------------------
 # 2. Recomendaciones inteligentes de paquetes (RF-20)
 # ----------------------------------------------------------------------
 def get_recommendations(client_profile: dict, budget: float, travel_style: str,
-                         travelers_count: int, interests: str, context: dict | None = None) -> dict:
-    # Privacidad P6: el perfil se reduce a alias/categoría/presupuesto antes
-    # de construir el prompt; el dict original nunca sale del servidor.
-    profile = sanitize_profile(client_profile)
-    signals = context or {}
+                         travelers_count: int, interests: str) -> dict:
     prompt = f"""
 Actúa como el motor de recomendación inteligente de DDN TRAVEL.
 Recomienda los mejores paquetes y destinos personalizados para el siguiente perfil de viajero:
 
 Perfil:
-- Viajero: {profile['alias']} (categoría {profile['category'] or 'general'})
+- Nombre / Tipo: Cliente A (alias — no se envían nombres reales a Gemini)
 - Presupuesto aproximado: ${budget or 2000} USD
 - Estilo de viaje: {travel_style or 'Playa y Relajación'}
 - Número de viajeros: {travelers_count or 2}
 - Intereses específicos: {interests or 'Gastronomía, tours culturales, descanso, hoteles de 4 o 5 estrellas'}
-- Señales agregadas de la agencia: {json.dumps(signals, ensure_ascii=False) or 'sin datos suficientes'}
 
 Devuelve un JSON estructurado con:
 {{
@@ -422,18 +290,9 @@ Devuelve un JSON estructurado con:
 
     def fallback():
         b = budget or 2500
-        tips = [
-            "Reservar con al menos 3 semanas de antelación permite asegurar habitaciones con vista directa al "
-            "mar sin costo adicional.",
-            "Incluir traslados privados desde el momento de la cotización optimiza el tiempo y evita esperas "
-            "en terminales aéreas.",
-        ]
-        if signals.get("top_destinations"):
-            tips.append("Destinos con más demanda ahora mismo: "
-                        + ", ".join(signals["top_destinations"][:3]) + ".")
         return {
             "affinityScore": 96,
-            "profileSummary": (f"Perfil de alto valor ({profile['alias']}). "
+            "profileSummary": (f"Perfil de alto valor para {client_profile.get('name', 'el viajero')}. "
                                 f"Con un presupuesto de ${b} USD y estilo enfocado en "
                                 f"{travel_style or 'Playa y Relajación'}, la selección prioriza experiencias de "
                                 "lujo y servicio exclusivo."),
@@ -452,10 +311,15 @@ Devuelve un JSON estructurado con:
                  "highlights": ["Entradas preferenciales", "Cenotes sagrados y Chichén Itzá", "Hotelería 5 estrellas"],
                  "recommendedDuration": "6 Días / 5 Noches", "bestSeason": "Noviembre a Abril"},
             ],
-            "smartTips": tips,
+            "smartTips": [
+                "Reservar con al menos 3 semanas de antelación permite asegurar habitaciones con vista directa al "
+                "mar sin costo adicional.",
+                "Incluir traslados privados desde el momento de la cotización optimiza el tiempo y evita esperas "
+                "en terminales aéreas.",
+            ],
         }
 
-    return generate_gemini_json(prompt, fallback, schema=validate_recommendations)
+    return generate_gemini_json(prompt, fallback, validate=True)
 
 
 # ----------------------------------------------------------------------
@@ -525,4 +389,4 @@ Devuelve un JSON con:
             "estimatedBudgetUSD": (int(travelers) if travelers else 2) * (day_count * 175),
         }
 
-    return generate_gemini_json(prompt, fallback, schema=validate_itinerary_result)
+    return generate_gemini_json(prompt, fallback, validate=True)

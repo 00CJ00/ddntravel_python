@@ -74,6 +74,7 @@ def create_app(config_object=None):
     # dispersa por las rutas: se centraliza en DataStore._commit/_rollback.
     os.makedirs(INSTANCE_DIR, exist_ok=True)
     db.init_app(app)
+    mail.init_app(app)
     # render_as_batch=True: SQLite no soporta ALTER TABLE nativo para la mayoría
     # de cambios; el modo batch de Alembic los emula recreando la tabla. Se
     # necesita desde la primera migración para que las futuras (P3+) funcionen.
@@ -86,9 +87,6 @@ def create_app(config_object=None):
 
     # --- Rate limiting por IP (anti fuerza bruta y anti abuso) ---
     limiter.init_app(app)
-
-    # --- Correo (RF-13, fase P6): inofensivo sin configuración MAIL_* ---
-    mail.init_app(app)
 
     from . import permissions
     # `can(permiso)` en las plantillas oculta botones que el usuario no puede
@@ -116,13 +114,13 @@ def create_app(config_object=None):
 
     # --- Comandos de la CLI (``flask seed``, ``flask backup``; ``flask db ...`` ---
     # lo aporta Flask-Migrate) ---
-    from .cli import alerts_group, backup_command, seed_command
+    from .cli import alerts_command, backup_command, seed_command
+    app.cli.add_command(alerts_command)
     app.cli.add_command(seed_command)
     app.cli.add_command(backup_command)
-    app.cli.add_command(alerts_group)
 
-    # --- Alertas programadas (fase P6): solo con ENABLE_SCHEDULER=1 ---
-    from .scheduler import start_scheduler_if_enabled
-    start_scheduler_if_enabled(app)
+    if app.config.get("ENABLE_SCHEDULER") and not app.testing:
+        from .alerts import start_scheduler
+        start_scheduler(app)
 
     return app

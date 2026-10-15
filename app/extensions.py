@@ -24,6 +24,9 @@ mail = Mail()
 #: Limitador de peticiones por IP (anti fuerza bruta y anti abuso).
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
+#: Correo SMTP para notificaciones transaccionales.
+mail = Mail()
+
 #: ORM de la aplicación (SQLAlchemy). Sustituye al antiguo archivo JSON de estado.
 db = SQLAlchemy()
 
