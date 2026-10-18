@@ -209,6 +209,9 @@ class DataStore:
     def get_hotel(self, hotel_id):
         return catalog.get_hotel(hotel_id)
 
+    def get_room_type(self, room_type_id):
+        return catalog.get_room_type(room_type_id)
+
     def get_flight(self, flight_id):
         return catalog.get_flight(flight_id)
 
@@ -399,7 +402,8 @@ class DataStore:
         for k, v in data.items():
             if k in {"title", "destination_id", "destination_name", "duration_days", "duration_nights",
                      "price_usd", "original_price_usd", "available_slots", "total_slots", "max_capacity",
-                     "image", "image_url", "gallery", "category", "featured", "inclusions", "departure_dates"}:
+                     "image", "image_url", "gallery", "category", "featured", "inclusions", "departure_dates",
+                     "description"}:
                 try:
                     if k in {"duration_days", "duration_nights", "available_slots", "total_slots", "max_capacity"}:
                         v = int(float(v))
@@ -666,7 +670,8 @@ class DataStore:
     def create_booking(self, current_user, *, client_id, client_name, client_email,
                        package_id=None, package_name="", destination_name="",
                        departure_date="", return_date="", travelers=1, passengers=None,
-                       hotel_id=None, hotel_name=None, flight_id=None, flight_number=None,
+                       hotel_id=None, hotel_name=None, room_type_id=None,
+                       flight_id=None, flight_number=None,
                        transport_id=None, check_in=None, check_out=None, rooms_count=1,
                        total_price=0.0, notes="", initial_payment=0.0,
                        payment_method="Tarjeta de Crédito", promo_code=""):
@@ -740,6 +745,7 @@ class DataStore:
             booking = bookings_repo.create_booking_record(
                 client_id=client_id, package_id=package_id or None, package_name=package_name,
                 destination_name=destination_name, hotel_id=hotel_id or None, hotel_name=hotel_name,
+                room_type_id=room_type_id or None,
                 flight_id=flight_id or None, flight_number=flight_number,
                 departure_date=departure_date, return_date=return_date, travelers=travelers,
                 total_price=total_price, amount_paid=0, status=status,
@@ -1069,15 +1075,12 @@ class DataStore:
                          details=f"Cupón {promo.code} {'activado' if promo.active else 'desactivado'}.")
             self._commit()
 
-    def apply_promo_code(self, code, total_price) -> dict:
+    def apply_promo_code(self, code, total_price, client_category=None) -> dict:
         total_price = to_decimal(total_price)
-        promo = promotions_repo.find_active_by_code(code)
+        promo = self._find_valid_promo(code, client_category)
         if not promo:
             return {"valid": False, "discount_percentage": 0, "final_price": float(total_price),
-                    "message": "Código de promoción no válido o expirado."}
-        if (promo.current_uses or 0) >= (promo.max_uses or 0):
-            return {"valid": False, "discount_percentage": 0, "final_price": float(total_price),
-                    "message": "Este código ha alcanzado el límite máximo de usos."}
+                    "message": "Código de promoción no válido, expirado o no aplicable."}
         final_price, discount = promo.apply_to(total_price)
         return {"valid": True, "discount_percentage": promo.discount_percentage,
                 "final_price": float(final_price),
@@ -1256,7 +1259,7 @@ class DataStore:
             if str(valid_until)[:10] < _today():
                 return None
         cats = promo.applicable_categories or []
-        if cats and "Todos" not in cats and client_category and client_category not in cats:
+        if cats and "Todos" not in cats and client_category not in cats:
             return None
         return promo
 
@@ -1329,7 +1332,10 @@ class DataStore:
         if booking.hotel_id:
             hotel = self.get_hotel(booking.hotel_id)
             if hotel is not None and hotel.room_types:
-                price = to_decimal(hotel.room_types[0].price_per_night or 0)
+                room_type = self.get_room_type(booking.room_type_id) if booking.room_type_id else None
+                if room_type is None:
+                    room_type = hotel.room_types[0]
+                price = to_decimal(room_type.price_per_night or 0)
                 try:
                     nights = max(1, (_as_date(booking.check_out) - _as_date(booking.check_in)).days)
                 except (ValueError, TypeError, AttributeError):

@@ -57,6 +57,19 @@ def create_app(config_object=None):
 
     config = get_config() if config_object is None else config_object
     app.config.from_object(config)
+    local_oauth_hosts = {"localhost", "127.0.0.1", "::1"}
+    configured_host = str(app.config.get("HOST", "")).strip("[]").lower()
+    if (
+        app.config.get("ENV") == "development"
+        and configured_host in local_oauth_hosts
+    ):
+        # OAuthlib rejects HTTP callbacks unless explicitly enabled. Limit the
+        # exception to the loopback-only development server; production OAuth
+        # callbacks must use HTTPS.
+        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    else:
+        os.environ.pop("OAUTHLIB_INSECURE_TRANSPORT", None)
+
     app.secret_key = resolve_secret_key(
         app.config.get("SECRET_KEY", "").strip(),
         app.config.get("ENV", "development"),

@@ -3,7 +3,7 @@
 <!-- ============================== MODAL: NUEVA RESERVA ============================== -->
 {% if can('bookings:create') %}
 <div id="modal-new-booking" class="modal-overlay">
-  <div class="relative w-full max-w-3xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
+  <div class="relative w-full max-w-4xl bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/15 overflow-hidden my-8 max-h-[90vh] flex flex-col text-white">
     <div class="px-6 py-4 bg-gradient-to-r from-sky-900/80 via-indigo-900/80 to-slate-900/80 border-b border-white/10 flex items-center justify-between">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center font-bold text-sky-300">DDN</div>
@@ -15,90 +15,151 @@
       <button type="button" onclick="closeModal('modal-new-booking')" class="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10">{{ m.icon('x','w-5 h-5') }}</button>
     </div>
 
-    <form method="POST" action="{{ url_for('main.new_booking') }}" class="flex-1 overflow-y-auto p-6 space-y-5" id="new-booking-form">
+    <form method="POST" action="{{ url_for('main.new_booking') }}" class="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5" id="new-booking-form">
     {{ m.csrf_input() }}
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 space-y-3" aria-labelledby="booking-details-heading">
         <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Cliente Registrado</label>
-          <select name="client_id" id="booking-client" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <h3 id="booking-details-heading" class="text-sm font-bold text-sky-300">1. Cliente y paquete</h3>
+          <p class="text-xs text-slate-400 mt-1">Asocia la reserva a un cliente registrado. El paquete es opcional si prepararás un viaje personalizado.</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+        <div>
+          <label for="booking-client" class="block text-xs font-semibold text-slate-300 mb-1.5">Cliente registrado <span class="text-rose-400">*</span></label>
+          <select name="client_id" id="booking-client" required class="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
             {% for c in store.clients %}
             <option value="{{ c.id }}" class="bg-slate-900">{{ c.name }} — {{ c.category }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Paquete Turístico (Opcional)</label>
-          <select name="package_id" id="booking-package" onchange="recalcBookingPrice()" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <label for="booking-package" class="block text-xs font-semibold text-slate-300 mb-1.5">Paquete turístico <span class="font-normal text-slate-400">(opcional)</span></label>
+          <select name="package_id" id="booking-package" class="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
             <option value="">— Itinerario personalizado —</option>
             {% for p in store.packages %}
-            <option value="{{ p.id }}" data-price="{{ p.price_usd }}" data-slots="{{ p.available_slots }}" data-dest="{{ p.destination_name }}">{{ p.title }} (${{ p.price_usd|usd }} USD) — {{ p.available_slots }} cupos</option>
+            <option value="{{ p.id }}">{{ p.title }} (${{ p.price_usd|usd }} USD) — {{ p.available_slots }} cupos</option>
             {% endfor %}
           </select>
         </div>
       </div>
+      </section>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 space-y-3" aria-labelledby="booking-trip-heading">
         <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Fecha de Salida</label>
-          <input type="date" name="departure_date" value="2026-09-20" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <h3 id="booking-trip-heading" class="text-sm font-bold text-sky-300">2. Fechas y viajeros</h3>
+          <p class="text-xs text-slate-400 mt-1">Indica el período del viaje y cuántas personas viajarán; el total se actualizará automáticamente.</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+        <div>
+          <label for="booking-departure-date" class="block text-xs font-semibold text-slate-300 mb-1.5">Fecha de salida <span class="text-rose-400">*</span></label>
+          <input type="date" id="booking-departure-date" name="departure_date" value="2026-09-20" required class="w-full min-h-11 px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Fecha de Retorno</label>
-          <input type="date" name="return_date" value="2026-09-25" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-        </div>
-      </div>
-
-      <div>
-        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Número de Viajeros</label>
-        <input type="number" name="travelers" id="booking-travelers" min="1" max="10" value="2" oninput="syncPassengers(); recalcBookingPrice();" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      </div>
-
-      <div id="passenger-rows" class="space-y-2"></div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Hotel Aliado (Opcional)</label>
-          <select name="hotel_id" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="">— Ninguno —</option>
-            {% for h in store.hotels %}<option value="{{ h.id }}">{{ h.name }} ({{ h.stars }}★)</option>{% endfor %}
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Vuelo (Opcional)</label>
-          <select name="flight_id" id="booking-flight" onchange="recalcBookingPrice()" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="">— Ninguno —</option>
-            {% for f in store.flights %}<option value="{{ f.id }}" data-price="{{ f.price_usd }}">{{ f.airline }} ({{ f.flight_number }}): {{ f.origin }} ➔ {{ f.destination }} (+${{ f.price_usd|usd }} USD/pax)</option>{% endfor %}
-          </select>
+          <label for="booking-return-date" class="block text-xs font-semibold text-slate-300 mb-1.5">Fecha de retorno <span class="text-rose-400">*</span></label>
+          <input type="date" id="booking-return-date" name="return_date" value="2026-09-25" required class="w-full min-h-11 px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
         </div>
       </div>
 
       <div>
-        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Código de Promoción</label>
-        <div class="flex gap-2">
-          <input type="text" name="promo_code" id="booking-promo" placeholder="Ej. VERANO20" class="flex-1 px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          <button type="button" onclick="applyPromoPreview()" class="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-bold">Aplicar</button>
-        </div>
-        <p id="promo-message" class="text-2xs mt-1"></p>
+        <label for="booking-travelers" class="block text-xs font-semibold text-slate-300 mb-1.5">Cantidad de viajeros</label>
+        <input type="number" name="travelers" id="booking-travelers" min="1" max="10" value="2" oninput="syncPassengers();" aria-describedby="booking-travelers-help" class="w-full min-h-11 px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <p id="booking-travelers-help" class="text-xs text-slate-400 mt-1">Máximo 10 personas por reserva. Completa los datos de cada viajero abajo.</p>
       </div>
+
+      <fieldset class="rounded-xl border border-white/10 p-3 sm:p-4 space-y-3">
+        <legend class="px-2 text-xs font-semibold text-slate-300">Datos de los viajeros</legend>
+        <p class="text-xs text-slate-400">Nombre, documento de identidad y edad de cada pasajero.</p>
+        <div id="passenger-rows" class="space-y-3"></div>
+      </fieldset>
+      </section>
+
+      {% if current_user.role != 'client' %}
+      {% set allied_hotels = store.hotels %}
+      {% set hotels_with_rooms = allied_hotels|selectattr('room_types')|list %}
+      <section class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 space-y-3" aria-labelledby="booking-services-heading">
+        <div>
+          <h3 id="booking-services-heading" class="text-sm font-bold text-sky-300">3. Servicios adicionales</h3>
+          <p class="text-xs text-slate-400 mt-1">Opcional: agrega un hotel aliado y/o un vuelo. Sus precios se incluyen en la cotización cuando corresponda.</p>
+        </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label for="booking-hotel" class="block text-xs font-semibold text-slate-300 mb-1.5">Hotel aliado <span class="font-normal text-slate-400">(opcional)</span></label>
+          <select name="hotel_id" id="booking-hotel" aria-describedby="booking-hotel-help" class="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— Sin hotel —</option>
+            {% for h in allied_hotels %}<option value="{{ h.id }}">{{ h.name }} · {{ h.destination_name }} · {{ h.stars }}★</option>{% endfor %}
+          </select>
+          <p id="booking-hotel-help" class="text-xs text-slate-400 mt-1">
+            {% if hotels_with_rooms %}{{ hotels_with_rooms|length }} hoteles aliados disponibles.{% else %}No hay hoteles aliados registrados todavía.{% endif %}
+          </p>
+        </div>
+        <div>
+          <label for="booking-room-type" class="block text-xs font-semibold text-slate-300 mb-1.5">Tipo de habitación</label>
+          <select name="room_type_id" id="booking-room-type" aria-describedby="booking-room-help" disabled class="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50">
+            <option value="">Selecciona un hotel primero</option>
+            {% for h in store.hotels %}
+              {% for room in h.room_types %}
+              <option value="{{ room.id }}" data-hotel-id="{{ h.id }}" hidden>{{ room.name }} · ${{ room.price_per_night|usd }} USD/noche</option>
+              {% endfor %}
+            {% endfor %}
+          </select>
+          <p id="booking-room-help" class="text-xs text-slate-400 mt-1">Elige primero el hotel para consultar sus habitaciones y tarifas.</p>
+        </div>
+        <div>
+          <label for="booking-rooms-count" class="block text-xs font-semibold text-slate-300 mb-1.5">Cantidad de habitaciones</label>
+          <input type="number" name="rooms_count" id="booking-rooms-count" min="1" max="20" value="1" aria-describedby="booking-rooms-help" class="w-full min-h-11 px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <p id="booking-rooms-help" class="text-xs text-slate-400 mt-1">De 1 a 20 habitaciones. La tarifa se calcula por noche.</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+        <div>
+          <label for="booking-flight" class="block text-xs font-semibold text-slate-300 mb-1.5">Vuelo <span class="font-normal text-slate-400">(opcional)</span></label>
+          <select name="flight_id" id="booking-flight" class="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— Ninguno —</option>
+            {% for f in store.flights %}<option value="{{ f.id }}">{{ f.airline }} ({{ f.flight_number }}): {{ f.origin }} ➔ {{ f.destination }} (+${{ f.price_usd|usd }} USD/pax)</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      </section>
+      {% else %}
+      <section class="rounded-2xl border border-indigo-400/20 bg-indigo-500/5 p-4" aria-label="Servicios de agencia">
+        <p class="text-xs text-slate-300">Los hoteles aliados y vuelos se cotizan con un asesor de la agencia. Si quieres incluirlos, envía la solicitud y te ayudaremos a agregarlos a tu viaje.</p>
+      </section>
+      {% endif %}
+
+      <section class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 space-y-3" aria-labelledby="booking-payment-heading">
+        <div>
+          <h3 id="booking-payment-heading" class="text-sm font-bold text-sky-300">4. Promoción y pago inicial</h3>
+          <p class="text-xs text-slate-400 mt-1">El código se valida para este cliente. El pago inicial es opcional; el método se usa si registras un pago.</p>
+        </div>
+        <div>
+          <label for="booking-promo" class="block text-xs font-semibold text-slate-300 mb-1.5">Código de promoción <span class="font-normal text-slate-400">(opcional)</span></label>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input type="text" name="promo_code" id="booking-promo" aria-describedby="promo-message" placeholder="Ej. VERANO20" class="min-w-0 flex-1 min-h-11 px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <button type="button" onclick="applyPromoPreview()" class="min-h-11 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-bold">Aplicar código</button>
+          </div>
+          <p id="promo-message" class="text-xs mt-1" aria-live="polite"></p>
+        </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Pago Inicial (USD)</label>
-          <input type="number" step="10" min="0" name="initial_payment" id="booking-initial-payment" value="0" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <label for="booking-initial-payment" class="block text-xs font-semibold text-slate-300 mb-1.5">Pago inicial (USD)</label>
+          <input type="number" step="0.01" min="0" name="initial_payment" id="booking-initial-payment" value="0" aria-describedby="booking-payment-help" class="w-full min-h-11 px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <p id="booking-payment-help" class="text-xs text-slate-400 mt-1">Puedes dejar 0 y registrar el pago después.</p>
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Método de Pago</label>
-          <select name="payment_method" class="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <label for="booking-payment-method" class="block text-xs font-semibold text-slate-300 mb-1.5">Método de pago</label>
+          <select name="payment_method" id="booking-payment-method" class="w-full min-h-11 px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
             {% for method in ['Tarjeta de Crédito','Transferencia Bancaria','Efectivo','Cripto','PayPal'] %}
             <option value="{{ method }}">{{ method }}</option>
             {% endfor %}
           </select>
         </div>
       </div>
+      </section>
 
       <div>
-        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Notas Adicionales</label>
-        <textarea name="notes" rows="2" class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+        <label for="booking-notes" class="block text-xs font-semibold text-slate-300 mb-1.5">Notas para el asesor <span class="font-normal text-slate-400">(opcional)</span></label>
+        <textarea id="booking-notes" name="notes" rows="2" placeholder="Preferencias, solicitudes especiales u otra información útil..." class="w-full px-3.5 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
       </div>
 
       <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-between">
@@ -108,7 +169,7 @@
 
       <div class="pt-2 flex justify-end gap-3">
         <button type="button" onclick="closeModal('modal-new-booking')" class="px-4 py-2 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 text-xs font-semibold">Cancelar</button>
-        <button type="submit" class="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold hover:from-indigo-500 hover:to-purple-500 shadow-lg shadow-indigo-600/30">Confirmar Reserva</button>
+        <button id="booking-submit" type="submit" disabled class="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs font-bold hover:from-indigo-500 hover:to-purple-500 shadow-lg shadow-indigo-600/30 disabled:opacity-50 disabled:cursor-not-allowed">Confirmar Reserva</button>
       </div>
     </form>
   </div>

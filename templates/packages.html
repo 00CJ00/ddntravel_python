@@ -2,11 +2,16 @@
 {% import 'macros.html' as m %}
 {% block content %}
 <div class="space-y-6 view-fade-in">
-  <div>
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
     <h1 class="text-2xl sm:text-4xl font-extralight tracking-tight flex items-center gap-2">
       <span class="text-white">Catálogo de </span><span class="font-bold text-purple-300">Paquetes Turísticos</span>
     </h1>
     <p class="text-xs sm:text-sm text-slate-400 font-light leading-relaxed mt-1">{{ packages|length }} paquetes disponibles en el catálogo DDN Travel</p>
+    </div>
+    {% if can('catalog:create') %}
+    <button type="button" data-catalog-new="package" class="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-500">Nuevo paquete</button>
+    {% endif %}
   </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -32,6 +37,19 @@
           <button onclick="openNewBookingModal('{{ pkg.id }}')" class="flex-1 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-2xs font-bold hover:from-indigo-500 hover:to-purple-500">Reservar Ahora</button>
           <button onclick="document.querySelector('#modal-ai-itinerary select[name=destination]').value='{{ pkg.destination_name }}'; openModal('modal-ai-itinerary');" class="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white text-2xs font-bold" title="Generar itinerario IA">✨</button>
         </div>
+        {% if can('catalog:edit') or can('catalog:delete') %}
+        <div class="flex gap-2 border-t border-white/5 pt-2">
+          {% if can('catalog:edit') %}
+          <button type="button" data-catalog-edit="package" data-edit-url="{{ url_for('main.admin_edit_package', pkg_id=pkg.id) }}" data-item='{{ pkg.to_dict()|tojson }}' class="min-h-11 flex-1 rounded-xl border border-indigo-400/30 bg-indigo-500/10 text-xs font-bold text-indigo-200 hover:bg-indigo-500/20">Editar</button>
+          {% endif %}
+          {% if can('catalog:delete') %}
+          <form method="POST" action="{{ url_for('main.admin_delete_package', pkg_id=pkg.id) }}" data-catalog-delete data-label="{{ pkg.title }}" class="flex-1">
+            {{ m.csrf_input() }}
+            <button type="submit" class="min-h-11 w-full rounded-xl border border-rose-400/30 bg-rose-500/10 text-xs font-bold text-rose-200 hover:bg-rose-500/20">Eliminar</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
     </div>
     {% endfor %}

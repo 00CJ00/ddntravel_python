@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sys
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -112,6 +113,26 @@ def test_google_oauth_es_publico_y_redirige_al_proveedor(app):
         assert autorizacion.location.startswith("https://")
         assert "google.com" in autorizacion.location
         assert autorizacion.location != "/login"
+        callback_url = parse_qs(urlparse(autorizacion.location).query)["redirect_uri"][0]
+        assert urlparse(callback_url).scheme == "http"
+        from oauthlib.oauth2.rfc6749.parameters import is_secure_transport
+        assert is_secure_transport(callback_url)
+
+
+def test_oauth_http_transport_is_disabled_outside_loopback_development(
+    monkeypatch, make_app
+):
+    """El bypass HTTP de OAuth no debe sobrevivir a una configuración de producción."""
+    monkeypatch.setenv("OAUTHLIB_INSECURE_TRANSPORT", "1")
+
+    from conftest import TestingConfig
+
+    class ProductionConfig(TestingConfig):
+        ENV = "production"
+
+    make_app(ProductionConfig)
+
+    assert "OAUTHLIB_INSECURE_TRANSPORT" not in os.environ
 
 
 def test_google_callback_crea_sesion_con_perfil_sin_nombre(app, client, store, monkeypatch):

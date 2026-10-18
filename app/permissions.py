@@ -160,6 +160,7 @@ ENDPOINT_PERMISSIONS: dict[str, str] = {
     "main.dashboard": "dashboard:view",
     "main.ai_predictive": "ai:predictive_view",
     "main.bookings": "bookings:view",
+    "main.booking_quote": "bookings:create",
     "main.clients": "clients:view",
     "main.packages": "catalog:view_packages",
     "main.destinations": "catalog:view_destinations",

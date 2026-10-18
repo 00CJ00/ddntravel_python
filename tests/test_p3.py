@@ -387,6 +387,7 @@ def test_crear_reserva_hotel_multiplica_por_noches_y_habitaciones(client, store,
                  if b.hotel_id == hotel.id and b.departure_date == __import__("datetime").date(2030, 6, 1))
     # 5 noches × 2 habitaciones × price_per_night
     assert nueva.total_price == price * 5 * 2
+    assert nueva.rooms_count == 2
 
 
 # ----------------------------------------------------------------------
@@ -498,6 +499,59 @@ def test_editar_vuelo_asientos_negativos_422(client, store, login_as, post_csrf)
     assert resp.status_code == 422
 
 
+def test_editar_paquete_actualiza_precio_imagen_y_descripcion(
+    client, store, login_as, post_csrf
+):
+    login_as(client, ADMIN_EMAIL)
+    package = store.packages[0]
+    response = post_csrf(
+        client,
+        f"/admin/packages/{package.id}",
+        {"title": package.title, "price_usd": "1234.50", "image": "https://example.com/paquete.jpg",
+         "description": "Descripción actualizada"},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert response.status_code == 200, response.data
+    assert response.json["success"] is True
+    assert package.price_usd == 1234.5
+    assert package.image == "https://example.com/paquete.jpg"
+    assert package.image_url == package.image
+    assert package.description == "Descripción actualizada"
+
+
+@pytest.mark.parametrize(
+    "resource,collection,url_prefix,payload,image_value,expected_price",
+    [
+        ("flight", "flights", "/admin/flights", {"price_usd": "321.25", "image": "https://example.com/vuelo.jpg"},
+         "https://example.com/vuelo.jpg", 321.25),
+        ("transport", "transports", "/admin/transports",
+         {"price_usd": "222.50", "image": "https://example.com/transporte.jpg", "amenities": "Aire, WiFi"},
+         "https://example.com/transporte.jpg", 222.5),
+        ("activity", "activities", "/admin/activities",
+         {"title": "Tour actualizado", "price_usd": "88.75", "image": "https://example.com/tour.jpg"},
+         "https://example.com/tour.jpg", 88.75),
+    ],
+)
+def test_editar_catalogo_actualiza_precio_e_imagen(
+    resource, collection, url_prefix, payload, image_value, expected_price,
+    client, store, login_as, post_csrf
+):
+    login_as(client, ADMIN_EMAIL)
+    entity = getattr(store, collection)[0]
+    response = post_csrf(
+        client,
+        f"{url_prefix}/{entity.id}",
+        payload,
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert response.status_code == 200, response.data
+    assert response.json["success"] is True
+    assert entity.price_usd == expected_price
+    assert entity.image == image_value
+    if resource == "transport":
+        assert entity.amenities == ["Aire", "WiFi"]
+
+
 def test_editar_hotel_room_type_precio_negativo_422(client, store, login_as, post_csrf):
     hotel = next(h for h in store.hotels if h.room_types)
     login_as(client, ADMIN_EMAIL)
@@ -520,10 +574,55 @@ def test_crear_paquete_valido_redirect(client, store, login_as, post_csrf):
     antes = len(store.packages)
     resp = post_csrf(client, "/admin/packages/new",
                      {"title": "Paquete Válido", "price_usd": "250", "total_slots": "5",
-                      "available_slots": "5", "duration_days": "3", "duration_nights": "2"})
+                      "available_slots": "5", "duration_days": "3", "duration_nights": "2",
+                      "image": "https://example.com/nuevo-paquete.jpg",
+                      "description": "Descripción del paquete"})
     assert resp.status_code == 302
     assert len(store.packages) == antes + 1
-    assert any(p.title == "Paquete Válido" for p in store.packages)
+    package = next(p for p in store.packages if p.title == "Paquete Válido")
+    assert package.image == "https://example.com/nuevo-paquete.jpg"
+    assert package.description == "Descripción del paquete"
+
+
+@pytest.mark.parametrize(
+    "url,payload,collection,label,image",
+    [
+        (
+            "/admin/flights/new",
+            {"airline": "DDN Air", "flight_number": "DDN-501", "origin": "STI",
+             "destination": "SDQ", "departure_time": "08:00", "arrival_time": "09:00",
+             "price_usd": "150", "seats_available": "18", "total_seats": "18",
+             "image": "https://example.com/vuelo-nuevo.jpg"},
+            "flights", "DDN Air", "https://example.com/vuelo-nuevo.jpg",
+        ),
+        (
+            "/admin/transports/new",
+            {"type": "Minibús", "vehicle_model": "DDN Van", "route": "STI-SDQ",
+             "driver_name": "Conductor", "capacity": "12", "available_seats": "12",
+             "price_usd": "80", "amenities": "Aire, WiFi",
+             "image": "https://example.com/transporte-nuevo.jpg"},
+            "transports", "DDN Van", "https://example.com/transporte-nuevo.jpg",
+        ),
+        (
+            "/admin/activities/new",
+            {"title": "Tour nuevo", "destination_name": "Santiago", "duration_hours": "3",
+             "price_usd": "45", "includes_guide": "1", "image": "https://example.com/tour-nuevo.jpg"},
+            "activities", "Tour nuevo", "https://example.com/tour-nuevo.jpg",
+        ),
+    ],
+)
+def test_crear_recursos_catalogo_desde_formulario(
+    url, payload, collection, label, image, client, store, login_as, post_csrf
+):
+    login_as(client, ADMIN_EMAIL)
+    before_ids = {entity.id for entity in getattr(store, collection)}
+    response = post_csrf(client, url, payload)
+    assert response.status_code == 302
+    entities = getattr(store, collection)
+    assert len(entities) == len(before_ids) + 1
+    created = next(entity for entity in entities if entity.id not in before_ids)
+    assert getattr(created, "title", getattr(created, "airline", getattr(created, "vehicle_model", ""))) == label
+    assert created.image == image
 
 
 def test_crear_destino_sin_nombre_422_modal(client, store, login_as, post_csrf):

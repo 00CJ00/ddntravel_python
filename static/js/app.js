@@ -37,6 +37,7 @@ async function csrfFetch(url, options = {}) {
 function openModal(id) {
   document.getElementById(id).classList.add('open');
   document.body.style.overflow = 'hidden';
+  if (id === 'modal-new-booking') refreshBookingQuote();
 }
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
@@ -44,6 +45,131 @@ function closeModal(id) {
 }
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
   overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(overlay.id); });
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const activeModal = document.querySelector('.modal-overlay.open');
+  if (activeModal) closeModal(activeModal.id);
+});
+
+function setCatalogFields(kind) {
+  document.querySelectorAll('[data-catalog-fields]').forEach(fieldset => {
+    const isActive = fieldset.dataset.catalogFields === kind;
+    fieldset.hidden = !isActive;
+    fieldset.disabled = !isActive;
+  });
+}
+
+function openCatalogEditor(kind, item = null, editUrl = '') {
+  const form = document.getElementById('catalog-editor-form');
+  const title = document.getElementById('catalog-editor-title');
+  const error = document.getElementById('catalog-editor-error');
+  const createUrls = {
+    package: '/admin/packages/new',
+    flight: '/admin/flights/new',
+    transport: '/admin/transports/new',
+    activity: '/admin/activities/new'
+  };
+  const labels = {
+    package: 'paquete turístico',
+    flight: 'vuelo',
+    transport: 'transporte turístico',
+    activity: 'tour o actividad'
+  };
+  if (!form || !createUrls[kind]) return;
+  form.reset();
+  error.textContent = '';
+  error.classList.add('hidden');
+  setCatalogFields(kind);
+  form.dataset.mode = item ? 'edit' : 'create';
+  form.action = item ? editUrl : createUrls[kind];
+  title.textContent = `${item ? 'Editar' : 'Nuevo'} ${labels[kind]}`;
+  if (item) {
+    const activeFields = form.querySelector(`[data-catalog-fields="${kind}"]`);
+    Object.entries(item).forEach(([key, value]) => {
+      const field = activeFields.elements.namedItem(key);
+      if (!field || value === null || value === undefined) return;
+      field.value = Array.isArray(value)
+        ? value.join(', ')
+        : (typeof value === 'boolean' ? (value ? '1' : '0') : String(value));
+    });
+    if (kind === 'package' && item.image_url && !item.image) {
+      activeFields.elements.namedItem('image').value = item.image_url;
+    }
+  }
+  openModal('catalog-editor-modal');
+  const firstField = form.querySelector(`[data-catalog-fields="${kind}"] input:not([type=hidden])`);
+  if (firstField) firstField.focus();
+}
+
+document.addEventListener('click', event => {
+  const createButton = event.target.closest('[data-catalog-new]');
+  if (createButton) {
+    openCatalogEditor(createButton.dataset.catalogNew);
+    return;
+  }
+  const editButton = event.target.closest('[data-catalog-edit]');
+  if (editButton) {
+    try {
+      openCatalogEditor(
+        editButton.dataset.catalogEdit,
+        JSON.parse(editButton.dataset.item),
+        editButton.dataset.editUrl
+      );
+    } catch (error) {
+      window.alert('No se pudieron cargar los datos para editar este recurso.');
+    }
+  }
+});
+
+document.querySelectorAll('[data-catalog-editor]').forEach(form => {
+  form.addEventListener('submit', async event => {
+    if (form.dataset.mode !== 'edit') return;
+    event.preventDefault();
+    const errorBox = document.getElementById('catalog-editor-error');
+    errorBox.textContent = '';
+    errorBox.classList.add('hidden');
+    try {
+      const response = await csrfFetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new FormData(form)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        const details = result.errors ? result.errors.join(' ') : result.error;
+        throw new Error(details || 'No se pudo guardar el recurso.');
+      }
+      window.alert('Los cambios se guardaron correctamente.');
+      window.location.reload();
+    } catch (error) {
+      errorBox.textContent = error.message || 'No se pudo guardar el recurso.';
+      errorBox.classList.remove('hidden');
+    }
+  });
+});
+
+document.querySelectorAll('[data-catalog-delete]').forEach(form => {
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const label = form.dataset.label || 'este recurso';
+    if (!window.confirm(`¿Seguro que deseas eliminar «${label}»?`)) return;
+    try {
+      const response = await csrfFetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new FormData(form)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'No se pudo eliminar el recurso.');
+      }
+      window.alert('El recurso se eliminó correctamente.');
+      window.location.reload();
+    } catch (error) {
+      window.alert(error.message || 'No se pudo eliminar el recurso.');
+    }
+  });
 });
 
 function toggleDropdown(id) {
@@ -59,7 +185,7 @@ document.addEventListener('click', e => {
 });
 
 // ------------------------------------------------------------
-// Nueva reserva: pasajeros dinámicos + cálculo de precio en vivo
+// Nueva reserva: pasajeros dinámicos + cotización calculada por el servidor
 // ------------------------------------------------------------
 function syncPassengers() {
   const count = Math.max(1, Math.min(10, parseInt(document.getElementById('booking-travelers').value) || 1));
@@ -68,11 +194,20 @@ function syncPassengers() {
   if (count > existing) {
     for (let i = existing; i < count; i++) {
       const row = document.createElement('div');
-      row.className = 'passenger-row grid grid-cols-3 gap-2';
+      row.className = 'passenger-row grid grid-cols-1 sm:grid-cols-3 gap-3';
       row.innerHTML = `
-        <input name="passenger_name[]" placeholder="Pasajero ${i + 1}: Nombre completo" class="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-2xs text-white">
-        <input name="passenger_document[]" placeholder="Documento" class="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-2xs text-white">
-        <input name="passenger_age[]" type="number" placeholder="Edad" value="30" class="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-2xs text-white">`;
+        <div>
+          <label for="passenger-name-${i}" class="block text-xs font-medium text-slate-300 mb-1">Viajero ${i + 1}: nombre completo</label>
+          <input id="passenger-name-${i}" name="passenger_name[]" autocomplete="name" aria-label="Viajero ${i + 1}: nombre completo" class="w-full min-h-11 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+        </div>
+        <div>
+          <label for="passenger-document-${i}" class="block text-xs font-medium text-slate-300 mb-1">Documento de identidad</label>
+          <input id="passenger-document-${i}" name="passenger_document[]" aria-label="Viajero ${i + 1}: documento de identidad" class="w-full min-h-11 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+        </div>
+        <div>
+          <label for="passenger-age-${i}" class="block text-xs font-medium text-slate-300 mb-1">Edad</label>
+          <input id="passenger-age-${i}" name="passenger_age[]" type="number" min="0" max="120" value="30" aria-label="Viajero ${i + 1}: edad" class="w-full min-h-11 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white">
+        </div>`;
       container.appendChild(row);
     }
   } else {
@@ -83,17 +218,53 @@ function syncPassengers() {
 }
 document.addEventListener('DOMContentLoaded', syncPassengers);
 
-function recalcBookingPrice() {
-  const pkgSelect = document.getElementById('booking-package');
-  const flightSelect = document.getElementById('booking-flight');
-  const travelers = Math.max(1, parseInt(document.getElementById('booking-travelers').value) || 1);
-  const pkgOpt = pkgSelect.options[pkgSelect.selectedIndex];
-  const flightOpt = flightSelect.options[flightSelect.selectedIndex];
-  const basePrice = pkgOpt && pkgOpt.dataset.price ? parseFloat(pkgOpt.dataset.price) : 300;
-  const flightAddon = flightOpt && flightOpt.dataset.price ? parseFloat(flightOpt.dataset.price) * travelers : 0;
-  const rawTotal = basePrice * travelers + flightAddon;
-  document.getElementById('booking-total-display').textContent = `$${Math.round(rawTotal).toLocaleString()} USD`;
-  window._rawBookingTotal = rawTotal;
+let bookingQuoteRequest = 0;
+let bookingQuoteReady = false;
+
+async function refreshBookingQuote() {
+  const form = document.getElementById('new-booking-form');
+  const totalEl = document.getElementById('booking-total-display');
+  if (!form || !totalEl) return;
+
+  const requestId = ++bookingQuoteRequest;
+  bookingQuoteReady = false;
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (submitButton) submitButton.disabled = true;
+  const params = new URLSearchParams();
+  const fields = new FormData(form);
+  ['package_id', 'hotel_id', 'room_type_id', 'flight_id', 'travelers', 'rooms_count',
+    'departure_date', 'return_date', 'check_in', 'check_out',
+    'promo_code', 'client_id'].forEach(name => {
+    const value = fields.get(name);
+    if (value !== null && value !== '') params.set(name, value);
+  });
+
+  totalEl.textContent = 'Calculando…';
+  const promoMessage = document.getElementById('promo-message');
+  try {
+    const response = await csrfFetch(`/api/bookings/quote?${params.toString()}`);
+    const quote = await response.json();
+    if (requestId !== bookingQuoteRequest) return;
+    if (!response.ok || !quote.success) throw new Error(quote.error || 'Cotización no disponible');
+
+    totalEl.textContent = `$${Number(quote.total).toLocaleString('en-US', {
+      minimumFractionDigits: 2, maximumFractionDigits: 2
+    })} USD`;
+    bookingQuoteReady = true;
+    if (submitButton) submitButton.disabled = false;
+    if (promoMessage) {
+      promoMessage.textContent = quote.promo_message || '';
+      promoMessage.className = 'text-2xs mt-1 ' +
+        (quote.promo_valid ? 'text-emerald-400' : 'text-rose-400');
+    }
+  } catch (err) {
+    if (requestId !== bookingQuoteRequest) return;
+    totalEl.textContent = 'No disponible';
+    if (promoMessage) {
+      promoMessage.textContent = err.message || 'No se pudo calcular la cotización.';
+      promoMessage.className = 'text-2xs mt-1 text-rose-400';
+    }
+  }
 }
 
 function openNewBookingModal(packageId) {
@@ -101,32 +272,59 @@ function openNewBookingModal(packageId) {
     const select = document.getElementById('booking-package');
     select.value = packageId;
   }
-  recalcBookingPrice();
   openModal('modal-new-booking');
 }
 
 async function applyPromoPreview() {
-  const code = document.getElementById('booking-promo').value;
-  const msgEl = document.getElementById('promo-message');
-  if (!code.trim()) return;
-  recalcBookingPrice();
-  const total = window._rawBookingTotal || 0;
-  try {
-    const res = await csrfFetch('/api/promo/preview', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, total })
-    });
-    const data = await res.json();
-    msgEl.textContent = data.message;
-    msgEl.className = 'text-2xs mt-1 ' + (data.valid ? 'text-emerald-400' : 'text-rose-400');
-    if (data.valid) {
-      document.getElementById('booking-total-display').textContent = `$${Math.round(data.final_price).toLocaleString()} USD`;
-    }
-  } catch (err) {
-    msgEl.textContent = 'No se pudo validar el cupón en este momento.';
-    msgEl.className = 'text-2xs mt-1 text-rose-400';
-  }
+  await refreshBookingQuote();
 }
+
+function refreshBookingRoomTypes() {
+  const hotelSelect = document.getElementById('booking-hotel');
+  const roomSelect = document.getElementById('booking-room-type');
+  if (!hotelSelect || !roomSelect) return;
+
+  const hotelId = hotelSelect.value;
+  const options = [...roomSelect.querySelectorAll('option[data-hotel-id]')];
+  options.forEach(option => {
+    option.hidden = !hotelId || option.dataset.hotelId !== hotelId;
+  });
+  const availableOptions = options.filter(option => !option.hidden);
+  roomSelect.value = availableOptions[0]?.value || '';
+  roomSelect.disabled = availableOptions.length === 0;
+  if (!availableOptions.length) {
+    roomSelect.options[0].textContent = hotelId
+      ? 'Este hotel no tiene tipos de habitación'
+      : 'Selecciona un hotel primero';
+  }
+  refreshBookingQuote();
+}
+
+function initBookingQuote() {
+  const form = document.getElementById('new-booking-form');
+  if (!form) return;
+  ['package_id', 'room_type_id', 'flight_id', 'travelers', 'rooms_count',
+    'departure_date', 'return_date', 'check_in', 'check_out',
+    'promo_code', 'client_id'].forEach(name => {
+    const field = form.elements.namedItem(name);
+    if (field) {
+      const eventName = field.tagName === 'SELECT' ? 'change' : 'input';
+      field.addEventListener(eventName, refreshBookingQuote);
+    }
+  });
+  const hotelSelect = form.elements.namedItem('hotel_id');
+  if (hotelSelect) hotelSelect.addEventListener('change', refreshBookingRoomTypes);
+  refreshBookingRoomTypes();
+  form.addEventListener('submit', event => {
+    if (!bookingQuoteReady) {
+      event.preventDefault();
+      showToast('Espera a que se complete una cotización válida antes de confirmar.', 'error');
+    }
+  });
+  refreshBookingQuote();
+}
+
+document.addEventListener('DOMContentLoaded', initBookingQuote);
 
 // ------------------------------------------------------------
 // Detalle de reserva / factura (poblados desde data-json embebido en filas)

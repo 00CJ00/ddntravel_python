@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DDN Travel — Gestión Inteligente</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.svg') }}">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
   {# Token CSRF para las peticiones fetch() de static/js/app.js (Flask-WTF). #}
@@ -306,6 +307,7 @@
 </div>
 
 {% include 'partials/modals.html' %}
+{% include 'partials/catalog_editor.html' %}
 
 <!-- Chat en vivo widget -->
 {% if current_user %}

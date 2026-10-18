@@ -6,6 +6,7 @@ la propiedad del registro (``owned_or_404``). La matriz de permisos es la
 única fuente de verdad; aquí no se comprueban roles a mano.
 """
 from __future__ import annotations
+
 import os
 import re
 
@@ -29,6 +30,7 @@ from .permissions import (
     get_current_user, get_store, owned_or_404, own_records, owns,
     permission_required,
 )
+from .repositories.base import to_decimal
 
 bp = Blueprint("main", __name__)
 
@@ -58,6 +60,106 @@ def float_field(form, key, default=0.0):
         return float(form.get(key, default) or default)
     except (TypeError, ValueError):
         return default
+
+
+def _booking_quote(data, client_category=None, *, is_client=False):
+    """Calcula en el servidor el mismo total que se guardará en la reserva."""
+    def selected_id(name, maximum):
+        value = (data.get(name) or "").strip()
+        if not value:
+            return None
+        if not value.isdecimal():
+            raise ValueError(f"El recurso seleccionado en '{name}' no es válido.")
+        item = maximum(value)
+        if item is None:
+            raise ValueError(f"El recurso seleccionado en '{name}' ya no está disponible.")
+        return item
+
+    def bounded_int(name, default, minimum, maximum):
+        value = data.get(name)
+        if value in (None, ""):
+            return default
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"El campo '{name}' debe ser un número entero.") from None
+        if not minimum <= parsed <= maximum:
+            raise ValueError(f"El campo '{name}' debe estar entre {minimum} y {maximum}.")
+        return parsed
+
+    travelers = bounded_int("travelers", 1, 1, 10)
+    rooms_count = bounded_int("rooms_count", 1, 1, 20)
+    package = selected_id("package_id", store.get_package)
+    hotel_id = (data.get("hotel_id") or "").strip()
+    flight_id = (data.get("flight_id") or "").strip()
+    room_type_id = (data.get("room_type_id") or "").strip()
+    if is_client and (hotel_id or flight_id):
+        abort(403)
+    hotel = selected_id("hotel_id", store.get_hotel)
+    flight = selected_id("flight_id", store.get_flight)
+    room_type = selected_id("room_type_id", store.get_room_type)
+    if room_type and (hotel is None or room_type.hotel_id != hotel.id):
+        raise ValueError("El tipo de habitación no corresponde al hotel seleccionado.")
+    if hotel:
+        if not hotel.room_types:
+            raise ValueError("El hotel seleccionado no tiene tipos de habitación con tarifa.")
+        if room_type is None:
+            room_type = hotel.room_types[0]
+    if package and package.available_slots < travelers:
+        raise ValueError("No hay cupos suficientes para la cantidad de viajeros.")
+    if flight and flight.seats_available < travelers:
+        raise ValueError("No hay asientos suficientes para la cantidad de viajeros.")
+
+    flight_addon = to_decimal(flight.price_usd or 0) * travelers if flight else 0
+    nights = 1
+    if package:
+        subtotal = to_decimal(package.price_usd or 0) * travelers + flight_addon
+    elif hotel:
+        from datetime import date as _date
+
+        check_in = data.get("check_in") or data.get("departure_date") or ""
+        check_out = data.get("check_out") or data.get("return_date") or ""
+        if not check_in or not check_out:
+            raise ValueError("Debes indicar las fechas de entrada y salida del hotel.")
+        try:
+            nights = (_date.fromisoformat(check_out) - _date.fromisoformat(check_in)).days
+        except (ValueError, TypeError):
+            raise ValueError("Las fechas de entrada o salida del hotel no son válidas.") from None
+        if nights < 1:
+            raise ValueError("La salida del hotel debe ser posterior a la entrada.")
+        nightly_rate = to_decimal(room_type.price_per_night or 0)
+        subtotal = nightly_rate * nights * rooms_count + flight_addon
+    else:
+        subtotal = to_decimal("300") * travelers + flight_addon
+
+    promo_code = (data.get("promo_code") or "").strip()
+    promo_result = store.apply_promo_code(
+        promo_code, subtotal, client_category=client_category
+    ) if promo_code else {
+        "valid": False,
+        "discount_percentage": 0,
+        "final_price": float(subtotal),
+        "message": "",
+    }
+    if promo_result["valid"]:
+        discount_rate = to_decimal(promo_result["discount_percentage"])
+        total = (
+            subtotal * (to_decimal("100") - discount_rate) / to_decimal("100")
+        ).quantize(to_decimal("0.01"))
+    else:
+        total = subtotal
+    return {
+        "travelers": travelers,
+        "rooms_count": rooms_count,
+        "room_type_id": room_type.id if room_type else None,
+        "room_type_name": room_type.name if room_type else "",
+        "nights": nights,
+        "subtotal": subtotal,
+        "discount": subtotal - total,
+        "total": total,
+        "promo_code": promo_code if promo_result["valid"] else "",
+        "promo_result": promo_result,
+    }
 
 
 def dev_switch_enabled():
@@ -332,7 +434,9 @@ def admin_new_package():
         gallery=f.get("gallery", ""), category=f.get("category", "Estándar"),
         featured=bool(int_field(f, "featured", 0, minimum=0, maximum=1)),
         inclusions=f.get("inclusions", ""), departure_dates=f.get("departure_dates", ""),
+        description=f.get("description", ""),
     )
+    flash("Paquete turístico creado correctamente.", "success")
     return redirect(url_for("main.packages"))
 
 
@@ -343,9 +447,20 @@ def admin_edit_package(pkg_id):
     errors = validators.validate_catalog("package", dict(request.form))
     if errors:
         return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
-    updated = store.edit_package(get_current_user(), pkg_id, **dict(request.form))
+    allowed = {
+        "title", "destination_name", "duration_days", "duration_nights", "price_usd",
+        "original_price_usd", "available_slots", "total_slots", "max_capacity",
+        "image", "image_url", "category", "description",
+    }
+    changes = {key: value for key, value in request.form.items() if key in allowed}
+    if "image" in changes:
+        changes["image_url"] = changes["image"]
+    updated = store.edit_package(get_current_user(), pkg_id, **changes)
     if updated is None:
         return jsonify({"success": False, "error": "Paquete no encontrado"}), 404
+    if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+        flash("Paquete actualizado correctamente.", "success")
+        return redirect(url_for("main.packages"))
     return jsonify({"success": True, "title": updated.title})
 
 
@@ -437,6 +552,7 @@ def admin_new_flight():
         status=f.get("status", "A tiempo"), baggage_allowance=f.get("baggage_allowance", ""),
         image=f.get("image", ""),
     )
+    flash("Vuelo creado correctamente.", "success")
     return redirect(url_for("main.flights"))
 
 
@@ -453,6 +569,9 @@ def admin_edit_flight(flight_id):
                                 **{k: v for k, v in request.form.items() if k in allowed})
     if updated is None:
         return jsonify({"success": False, "error": "Vuelo no encontrado"}), 404
+    if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+        flash("Vuelo actualizado correctamente.", "success")
+        return redirect(url_for("main.flights"))
     return jsonify({"success": True, "airline": updated.airline, "flight_number": updated.flight_number})
 
 
@@ -476,8 +595,11 @@ def admin_new_transport():
         type=f.get("type", ""), route=f.get("route", ""), vehicle_model=f.get("vehicle_model", ""),
         capacity=int_field(f, "capacity", 0, minimum=0), available_seats=int_field(f, "available_seats", 0, minimum=0),
         driver_name=f.get("driver_name", ""), price_usd=float_field(f, "price_usd", 0.0),
-        status=f.get("status", "Operativo"), amenities=f.get("amenities", ""), image=f.get("image", ""),
+        status=f.get("status", "Operativo"),
+        amenities=[item.strip() for item in f.get("amenities", "").split(",") if item.strip()],
+        image=f.get("image", ""),
     )
+    flash("Transporte creado correctamente.", "success")
     return redirect(url_for("main.transports"))
 
 
@@ -490,10 +612,19 @@ def admin_edit_transport(transport_id):
         return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
     allowed = {"type", "route", "vehicle_model", "capacity", "available_seats", "driver_name",
                "price_usd", "status", "amenities", "image"}
-    updated = store.edit_transport(get_current_user(), transport_id,
-                                   **{k: v for k, v in request.form.items() if k in allowed})
+    updated = store.edit_transport(
+        get_current_user(),
+        transport_id,
+        **{
+            k: ([item.strip() for item in v.split(",") if item.strip()] if k == "amenities" else v)
+            for k, v in request.form.items() if k in allowed
+        },
+    )
     if updated is None:
         return jsonify({"success": False, "error": "Transporte no encontrado"}), 404
+    if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+        flash("Transporte actualizado correctamente.", "success")
+        return redirect(url_for("main.transports"))
     return jsonify({"success": True, "type": updated.type})
 
 
@@ -521,6 +652,7 @@ def admin_new_activity():
         description=f.get("description", ""), category=f.get("category", "Turismo"),
         schedule=f.get("schedule", ""),
     )
+    flash("Tour o actividad creado correctamente.", "success")
     return redirect(url_for("main.activities"))
 
 
@@ -537,6 +669,9 @@ def admin_edit_activity(activity_id):
                                   **{k: v for k, v in request.form.items() if k in allowed})
     if updated is None:
         return jsonify({"success": False, "error": "Actividad no encontrada"}), 404
+    if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+        flash("Tour o actividad actualizado correctamente.", "success")
+        return redirect(url_for("main.activities"))
     return jsonify({"success": True, "title": updated.title})
 
 
@@ -878,6 +1013,41 @@ def new_client():
 # ----------------------------------------------------------------------
 # Reservas (RN-01, RN-02, RN-03)
 # ----------------------------------------------------------------------
+@bp.route("/api/bookings/quote", methods=["GET"])
+@permission_required("bookings:create")
+def booking_quote():
+    """Cotiza una reserva usando precios consultados exclusivamente en la BD."""
+    user = get_current_user()
+    if user.role == "client":
+        client = client_record(user)
+    else:
+        client = store.get_client(request.args.get("client_id", ""))
+    try:
+        quote = _booking_quote(
+            request.args,
+            client_category=getattr(client, "category", None),
+            is_client=user.role == "client",
+        )
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 422
+    promo_result = quote["promo_result"]
+    return jsonify({
+        "success": True,
+        "currency": "USD",
+        "travelers": quote["travelers"],
+        "rooms_count": quote["rooms_count"],
+        "room_type_id": quote["room_type_id"],
+        "room_type_name": quote["room_type_name"],
+        "nights": quote["nights"],
+        "subtotal": float(quote["subtotal"]),
+        "discount": float(quote["discount"]),
+        "total": float(quote["total"]),
+        "final_price": float(quote["total"]),
+        "promo_valid": bool(promo_result["valid"]),
+        "promo_message": promo_result["message"],
+    })
+
+
 @bp.route("/bookings/new", methods=["POST"])
 @permission_required("bookings:create")
 def new_booking():
@@ -892,44 +1062,37 @@ def new_booking():
             return redirect(url_for("main.client_portal"))
     else:
         client = store.get_client(f.get("client_id", ""))
+    if not client:
+        flash(
+            "Regla de Negocio (RN-02): Debe seleccionar o registrar un cliente para asociar a la reserva.",
+            "error",
+        )
+        return redirect(
+            url_for("main.client_portal" if current_user.role == "client" else "main.bookings")
+        )
+
+    try:
+        quote = _booking_quote(
+            f,
+            client_category=getattr(client, "category", None),
+            is_client=current_user.role == "client",
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(
+            url_for("main.client_portal" if current_user.role == "client" else "main.bookings")
+        )
     package = store.get_package(f.get("package_id", "")) if f.get("package_id") else None
     hotel = store.get_hotel(f.get("hotel_id", "")) if f.get("hotel_id") else None
     flight = store.get_flight(f.get("flight_id", "")) if f.get("flight_id") else None
-    travelers = int_field(f, "travelers", 1, minimum=1, maximum=10)
+    travelers = quote["travelers"]
 
-    if not client:
-        return render_template("bookings.html", active_tab="bookings",
-                                bookings=own_records(current_user, store.bookings),
-                                error="Regla de Negocio (RN-02): Debe seleccionar o registrar un cliente para "
-                                      "asociar a la reserva.")
-
-    base_price = package.price_usd if package else (
-        (hotel.room_types[0].price_per_night if hotel and getattr(hotel, "room_types", None) else 300))
-    flight_addon = (flight.price_usd * travelers) if flight else 0
-    raw_total = (base_price * travelers) + flight_addon
-
-    # Precio de hotel = price_per_night × noches × habitaciones (RN-01, tarea 3 P3).
-    # Antes solo multiplicaba por travelers, ignorando noches y habitaciones.
-    if hotel and not package:
-        from datetime import date as _date
-        try:
-            dep = _date.fromisoformat(f.get("departure_date", "") or f.get("check_in", ""))
-            ret = _date.fromisoformat(f.get("return_date", "") or f.get("check_out", ""))
-            nights = max(1, (ret - dep).days)
-        except (ValueError, TypeError):
-            nights = 1
-        rooms_count = int_field(f, "rooms_count", 1, minimum=1, maximum=20)
-        hotel_price = hotel.room_types[0].price_per_night if hotel.room_types else 300
-        raw_total = (hotel_price * nights * rooms_count) + flight_addon
-
-    promo_code = f.get("promo_code", "").strip()
-    discounted_total = raw_total
-    promo_note = ""
-    if promo_code:
-        promo_result = store.apply_promo_code(promo_code, raw_total)
-        if promo_result["valid"]:
-            discounted_total = promo_result["final_price"]
-            promo_note = f" [Cupón: {promo_code.upper()} - {promo_result['discount_percentage']}%]"
+    promo_code = quote["promo_code"]
+    promo_note = (
+        f" [Cupón: {promo_code.upper()} - "
+        f"{quote['promo_result']['discount_percentage']}%]"
+        if promo_code else ""
+    )
 
     names = request.form.getlist("passenger_name[]")
     docs = request.form.getlist("passenger_document[]")
@@ -952,11 +1115,16 @@ def new_booking():
         destination_name=(package.destination_name if package else (hotel.destination_name if hotel else "Destino Exclusivo")),
         departure_date=f.get("departure_date", ""), return_date=f.get("return_date", ""),
         travelers=travelers, passengers=passengers, hotel_id=hotel.id if hotel else None,
+        check_in=f.get("check_in") or f.get("departure_date", ""),
+        check_out=f.get("check_out") or f.get("return_date", ""),
+        rooms_count=quote["rooms_count"],
+        room_type_id=quote["room_type_id"],
         hotel_name=hotel.name if hotel else None, flight_id=flight.id if flight else None,
-        flight_number=flight.flight_number if flight else None, total_price=discounted_total,
+        flight_number=flight.flight_number if flight else None, total_price=quote["total"],
         notes=(f.get("notes", "") + promo_note).strip(),
         initial_payment=float_field(f, "initial_payment"),
         payment_method=f.get("payment_method", "Tarjeta de Crédito"),
+        promo_code=promo_code,
     )
 
     if not result["success"]:
@@ -1145,7 +1313,17 @@ def toggle_promotion(promo_id):
 @permission_required("promotions:apply")
 def preview_promo():
     data = request.get_json(force=True, silent=True) or {}
-    result = store.apply_promo_code(data.get("code", ""), float(data.get("total", 0) or 0))
+    user = get_current_user()
+    if user.role == "client":
+        client = client_record(user)
+    else:
+        client = store.get_client(data.get("client_id", ""))
+    quote_data = dict(data)
+    quote_data["promo_code"] = data.get("promo_code") or data.get("code", "")
+    quote = _booking_quote(quote_data, client_category=getattr(client, "category", None))
+    result = dict(quote["promo_result"])
+    result["subtotal"] = float(quote["subtotal"])
+    result["final_price"] = float(quote["total"])
     return jsonify(result)
 
 

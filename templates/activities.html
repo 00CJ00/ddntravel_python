@@ -2,9 +2,14 @@
 {% import 'macros.html' as m %}
 {% block content %}
 <div class="space-y-6 view-fade-in">
-  <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
-    {{ m.icon('activity','w-6 h-6 text-amber-400') }} Tours, Excursiones & Actividades (RF-18)
-  </h1>
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+      {{ m.icon('activity','w-6 h-6 text-amber-400') }} Tours, Excursiones & Actividades (RF-18)
+    </h1>
+    {% if can('catalog:create') %}
+    <button type="button" data-catalog-new="activity" class="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-500">Nuevo tour</button>
+    {% endif %}
+  </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
     {% for act in activities %}
@@ -21,6 +26,17 @@
           <span class="text-white font-bold">${{ act.price_usd|usd }} USD</span>
           <span class="text-slate-400">{{ '🧭 Con guía' if act.includes_guide else 'Sin guía' }}</span>
         </div>
+        {% if can('catalog:edit') or can('catalog:delete') %}
+        <div class="flex gap-2 border-t border-white/5 p-3">
+          {% if can('catalog:edit') %}<button type="button" data-catalog-edit="activity" data-edit-url="{{ url_for('main.admin_edit_activity', activity_id=act.id) }}" data-item='{{ act.to_dict()|tojson }}' class="min-h-11 flex-1 rounded-xl bg-indigo-500/15 text-xs font-bold text-indigo-200">Editar</button>{% endif %}
+          {% if can('catalog:delete') %}
+          <form method="POST" action="{{ url_for('main.admin_delete_activity', activity_id=act.id) }}" data-catalog-delete data-label="{{ act.title }}" class="flex-1">
+            {{ m.csrf_input() }}
+            <button type="submit" class="min-h-11 w-full rounded-xl bg-rose-500/15 text-xs font-bold text-rose-200">Eliminar</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
     </div>
     {% endfor %}

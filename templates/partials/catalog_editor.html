@@ -1,0 +1,172 @@
+{% if can('catalog:create') %}
+<div id="catalog-editor-modal" class="modal-overlay">
+  <div role="dialog" aria-modal="true" aria-labelledby="catalog-editor-title" class="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl border border-white/15 bg-slate-900/95 text-white shadow-2xl">
+    <div class="flex items-center justify-between border-b border-white/10 bg-gradient-to-r from-indigo-900/80 to-slate-900/80 px-5 py-4">
+      <div>
+        <h2 id="catalog-editor-title" class="text-lg font-bold">Nuevo recurso</h2>
+        <p class="text-xs text-slate-300">Solo administradores pueden gestionar el catálogo.</p>
+      </div>
+      <button type="button" onclick="closeModal('catalog-editor-modal')" class="min-h-11 min-w-11 rounded-xl hover:bg-white/10" aria-label="Cerrar">
+        {{ m.icon('x','w-5 h-5 mx-auto') }}
+      </button>
+    </div>
+    <form id="catalog-editor-form" method="POST" class="max-h-[calc(90vh-5rem)] space-y-4 overflow-y-auto p-5" data-catalog-editor>
+      {{ m.csrf_input() }}
+      <p id="catalog-editor-error" class="hidden rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-300" role="alert"></p>
+
+      <fieldset data-catalog-fields="package" hidden class="catalog-fieldset grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <legend class="mb-2 text-sm font-semibold text-indigo-300">Paquete turístico</legend>
+        <label class="text-xs font-medium">Nombre del paquete *
+          <input name="title" required maxlength="200" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Destino
+          <input name="destination_name" maxlength="160" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Categoría
+          <input name="category" value="Estándar" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Precio por persona (USD) *
+          <input name="price_usd" type="number" min="0" step="0.01" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Precio anterior (USD)
+          <input name="original_price_usd" type="number" min="0" step="0.01" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Duración (días)
+          <input name="duration_days" type="number" min="1" value="1" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Noches
+          <input name="duration_nights" type="number" min="0" value="0" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Cupos disponibles
+          <input name="available_slots" type="number" min="0" value="0" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Cupos totales
+          <input name="total_slots" type="number" min="0" value="0" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium sm:col-span-2">URL de la foto
+          <input name="image" type="url" placeholder="https://ejemplo.com/foto.jpg" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium sm:col-span-2">Descripción
+          <textarea name="description" rows="3" class="catalog-field"></textarea>
+        </label>
+      </fieldset>
+
+      <fieldset data-catalog-fields="flight" hidden class="catalog-fieldset grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <legend class="mb-2 text-sm font-semibold text-sky-300">Vuelo</legend>
+        <label class="text-xs font-medium">Aerolínea *
+          <input name="airline" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Número de vuelo *
+          <input name="flight_number" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Origen *
+          <input name="origin" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Destino *
+          <input name="destination" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Hora de salida
+          <input name="departure_time" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Hora de llegada
+          <input name="arrival_time" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Precio (USD) *
+          <input name="price_usd" type="number" min="0" step="0.01" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Clase
+          <input name="flight_class" value="Económica" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Asientos disponibles
+          <input name="seats_available" type="number" min="0" value="0" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Asientos totales
+          <input name="total_seats" type="number" min="1" value="1" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Estado
+          <select name="status" class="catalog-field"><option>A tiempo</option><option>Retrasado</option><option>Cancelado</option></select>
+        </label>
+        <label class="text-xs font-medium">Equipaje incluido
+          <input name="baggage_allowance" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium sm:col-span-2">URL de imagen (opcional)
+          <input name="image" type="url" placeholder="https://ejemplo.com/foto.jpg" class="catalog-field">
+        </label>
+      </fieldset>
+
+      <fieldset data-catalog-fields="transport" hidden class="catalog-fieldset grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <legend class="mb-2 text-sm font-semibold text-teal-300">Transporte turístico</legend>
+        <label class="text-xs font-medium">Tipo de transporte *
+          <input name="type" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Modelo del vehículo *
+          <input name="vehicle_model" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Ruta
+          <input name="route" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Conductor
+          <input name="driver_name" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Precio (USD) *
+          <input name="price_usd" type="number" min="0" step="0.01" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Capacidad
+          <input name="capacity" type="number" min="0" value="0" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Asientos disponibles
+          <input name="available_seats" type="number" min="0" value="0" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Estado
+          <select name="status" class="catalog-field"><option>Operativo</option><option>En Ruta</option><option>Mantenimiento</option></select>
+        </label>
+        <label class="text-xs font-medium sm:col-span-2">Comodidades (separadas por coma)
+          <input name="amenities" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium sm:col-span-2">URL de imagen (opcional)
+          <input name="image" type="url" placeholder="https://ejemplo.com/foto.jpg" class="catalog-field">
+        </label>
+      </fieldset>
+
+      <fieldset data-catalog-fields="activity" hidden class="catalog-fieldset grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <legend class="mb-2 text-sm font-semibold text-amber-300">Tour o actividad</legend>
+        <label class="text-xs font-medium">Nombre del tour *
+          <input name="title" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Destino
+          <input name="destination_name" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Categoría
+          <input name="category" value="Turismo" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Dificultad
+          <input name="difficulty" value="Fácil" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Duración (horas)
+          <input name="duration_hours" type="number" min="0" value="1" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Precio (USD) *
+          <input name="price_usd" type="number" min="0" step="0.01" required class="catalog-field">
+        </label>
+        <label class="text-xs font-medium">Incluye guía
+          <select name="includes_guide" class="catalog-field"><option value="1">Sí</option><option value="0">No</option></select>
+        </label>
+        <label class="text-xs font-medium">Horario
+          <input name="schedule" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium sm:col-span-2">URL de la foto
+          <input name="image" type="url" placeholder="https://ejemplo.com/foto.jpg" class="catalog-field">
+        </label>
+        <label class="text-xs font-medium sm:col-span-2">Descripción
+          <textarea name="description" rows="3" class="catalog-field"></textarea>
+        </label>
+      </fieldset>
+
+      <div class="flex flex-col-reverse gap-2 border-t border-white/10 pt-4 sm:flex-row sm:justify-end">
+        <button type="button" onclick="closeModal('catalog-editor-modal')" class="min-h-11 rounded-xl border border-white/10 px-4 text-sm">Cancelar</button>
+        <button type="submit" class="min-h-11 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-5 text-sm font-bold text-white">Guardar cambios</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}

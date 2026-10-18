@@ -2,9 +2,14 @@
 {% import 'macros.html' as m %}
 {% block content %}
 <div class="space-y-6 view-fade-in">
-  <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
-    {{ m.icon('bus','w-6 h-6 text-teal-400') }} Flota & Transporte Turístico (RF-09)
-  </h1>
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+      {{ m.icon('bus','w-6 h-6 text-teal-400') }} Flota & Transporte Turístico (RF-09)
+    </h1>
+    {% if can('catalog:create') %}
+    <button type="button" data-catalog-new="transport" class="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white hover:bg-indigo-500">Nuevo transporte</button>
+    {% endif %}
+  </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
     {% for t in transports %}
@@ -17,6 +22,17 @@
       <p class="text-2xs text-slate-400">👨‍✈️ {{ t.driver_name }} · 🪑 {{ t.available_seats }}/{{ t.capacity }} asientos</p>
       <p class="text-2xs text-slate-300">{{ (t.amenities or [])|join(' · ') }}</p>
       <p class="text-sm font-bold text-emerald-400 pt-1 border-t border-white/5">${{ t.price_usd|usd }} USD</p>
+      {% if can('catalog:edit') or can('catalog:delete') %}
+      <div class="flex gap-2 border-t border-white/5 pt-2">
+        {% if can('catalog:edit') %}<button type="button" data-catalog-edit="transport" data-edit-url="{{ url_for('main.admin_edit_transport', transport_id=t.id) }}" data-item='{{ t.to_dict()|tojson }}' class="min-h-11 flex-1 rounded-xl bg-indigo-500/15 text-xs font-bold text-indigo-200">Editar</button>{% endif %}
+        {% if can('catalog:delete') %}
+        <form method="POST" action="{{ url_for('main.admin_delete_transport', transport_id=t.id) }}" data-catalog-delete data-label="{{ t.vehicle_model }}" class="flex-1">
+          {{ m.csrf_input() }}
+          <button type="submit" class="min-h-11 w-full rounded-xl bg-rose-500/15 text-xs font-bold text-rose-200">Eliminar</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
