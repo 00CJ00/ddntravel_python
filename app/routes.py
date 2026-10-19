@@ -1512,6 +1512,101 @@ def api_generate_itinerary():
     return jsonify({"success": True, "data": result})
 
 
+@bp.route("/api/search", methods=["GET"])
+def api_search():
+    """Búsqueda avanzada (RF-16): type, q, filtros, paginación, alcance por rol."""
+    from .repositories import search as search_repo
+    data = request.args
+    q = (data.get("q") or "").strip()
+    search_type = (data.get("type") or "packages").strip().lower()
+    category = data.get("category", "").strip()
+    destination = data.get("destination", "").strip()
+    status = data.get("status", "").strip()
+    sort = (data.get("sort") or "name").strip().lower()
+    order = (data.get("order") or "asc").strip().lower()
+
+    try:
+        page = int(data.get("page", 1))
+        per_page = int(data.get("per_page", 12))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Parámetros de paginación inválidos."}), 422
+
+    if page < 1:
+        return jsonify({"success": False, "error": "La página debe ser >= 1."}), 422
+    if per_page < 1 or per_page > 50:
+        return jsonify({"success": False, "error": "per_page debe estar entre 1 y 50."}), 422
+    if order not in ("asc", "desc"):
+        return jsonify({"success": False, "error": "order debe ser 'asc' o 'desc'."}), 422
+    if sort not in ("price", "date", "name"):
+        return jsonify({"success": False, "error": "sort debe ser 'price', 'date' o 'name'."}), 422
+
+    try:
+        min_price = float(data["min_price"]) if data.get("min_price") else None
+        max_price = float(data["max_price"]) if data.get("max_price") else None
+        min_stars = int(data["min_stars"]) if data.get("min_stars") else None
+        date_from = data.get("date_from") or None
+        date_to = data.get("date_to") or None
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Filtros numéricos inválidos."}), 422
+
+    searcher = search_repo.SEARCHERS.get(search_type)
+    if searcher is None:
+        return jsonify({"success": False,
+                        "error": f"Tipo de búsqueda inválido: '{search_type}'. "
+                                 f"Usa: {', '.join(search_repo.SEARCHERS.keys())}."}), 422
+
+    user = get_current_user()
+    is_staff = user is not None and user.role in ("admin", "employee")
+
+    try:
+        if search_type == "bookings":
+            query = searcher(q=q, category=category, destination=destination,
+                             status=status, current_user=user, is_staff=is_staff)
+        else:
+            query = searcher(q=q, category=category, destination=destination,
+                             min_price=min_price, max_price=max_price,
+                             min_stars=min_stars)
+    except Exception:
+        return jsonify({"success": False, "error": "Error en la búsqueda."}), 500
+
+    items, total, pages = search_repo._paginate(query, page, per_page)
+
+    # Serializar según tipo
+    if search_type == "bookings":
+        items_data = [{"id": b.id, "booking_code": b.booking_code,
+                       "destination_name": b.destination_name,
+                       "status": b.status, "total_price": float(b.total_price or 0),
+                       "travelers": b.travelers} for b in items]
+    elif search_type == "clients":
+        items_data = [{"id": c.id, "name": c.name, "email": c.email,
+                       "document_id": c.document_id, "category": c.category,
+                       "trips_count": c.trips_count} for c in items]
+    elif search_type in ("packages", "flights"):
+        items_data = [{"id": it.id, "title": getattr(it, "title", getattr(it, "airline", "")),
+                       "destination_name": getattr(it, "destination_name", getattr(it, "destination", "")),
+                       "price_usd": float(getattr(it, "price_usd", 0) or 0)}
+                      for it in items]
+    else:
+        items_data = [{"id": it.id, "name": getattr(it, "name", getattr(it, "title", ""))}
+                      for it in items]
+
+    return jsonify({
+        "items": items_data,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": pages,
+        "has_next": page < pages,
+        "filters_applied": {
+            "q": q, "type": search_type, "category": category,
+            "destination": destination, "status": status,
+            "min_price": min_price, "max_price": max_price,
+            "date_from": date_from, "date_to": date_to, "min_stars": min_stars,
+            "sort": sort, "order": order,
+        }
+    })
+
+
 @bp.route("/api/health")
 def health():
     return jsonify({"status": "ok", "app": "DDN Travel Server (Python)"})

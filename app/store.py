@@ -24,7 +24,7 @@ from . import seed as seed_module
 from .extensions import db
 from .repositories import bookings as bookings_repo
 from .repositories import itinerary as itinerary_repo
-from .repositories import catalog, people
+from .repositories import catalog, people, search as search_repo
 from .repositories import documents as documents_repo
 from .repositories import notifications as notifications_repo
 from .repositories import payments as payments_repo

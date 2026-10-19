@@ -202,6 +202,7 @@ ENDPOINT_PERMISSIONS: dict[str, str] = {
     "main.admin_delete_user": "users:manage",
     "main.request_callback": "profile:callback",
     "main.payment_ncf": "payments:invoice",
+    "main.api_search": "session:entry",
     "main.payment_factura": "payments:invoice",
     "main.payment_void": "payments:void",
 }
