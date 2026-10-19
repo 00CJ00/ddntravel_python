@@ -100,3 +100,4 @@ def test_search_clients_solo_staff(client, login_as):
     login_as(client, CLIENT_EMAIL)
     resp2 = _search(client, type="clients")
     assert resp2.status_code == 200
+    assert resp2.get_json()["total"] == 0

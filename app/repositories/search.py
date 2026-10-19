@@ -124,8 +124,10 @@ def search_bookings(q, category="", destination="", status="",
     return query
 
 
-def search_clients(q, category="", destination="", **kw):
-    query = m.Client.query
+def search_clients(q, category="", destination="", current_user=None, is_staff=False):
+    query = m.Client.query.filter(m.Client.deleted_at.is_(None))
+    if not is_staff and current_user is not None:
+        return m.Client.query.filter(m.Client.id == -1)
     if q:
         like = f"%{_escape_like(q)}%"
         query = query.filter(or_(

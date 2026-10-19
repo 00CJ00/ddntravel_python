@@ -1562,6 +1562,9 @@ def api_search():
         if search_type == "bookings":
             query = searcher(q=q, category=category, destination=destination,
                              status=status, current_user=user, is_staff=is_staff)
+        elif search_type == "clients":
+            query = searcher(q=q, category=category, destination=destination,
+                             current_user=user, is_staff=is_staff)
         else:
             query = searcher(q=q, category=category, destination=destination,
                              min_price=min_price, max_price=max_price,
