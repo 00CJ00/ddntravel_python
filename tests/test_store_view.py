@@ -2,7 +2,7 @@
 
 Comprueba el store filtrado (``app/view.py``) de los tres roles, en las páginas
 que antes exponían el store crudo: los modales globales de ``base.html`` (que
-iteraban todos los clientes y todas las reservas) y ``window.DDN_DATA``.
+iteraban todos los clientes y todas las reservas) y el estado global de JavaScript.
 """
 from __future__ import annotations
 
@@ -49,10 +49,10 @@ def test_html_de_cliente_no_contiene_datos_de_otros(ruta, client, store, login_a
         assert reserva.booking_code not in html, f"{ruta} filtra la reserva ajena {reserva.booking_code}"
 
 
-def test_ddn_data_de_cliente_no_incluye_otros_clientes(client, store, login_as):
+def test_html_no_expone_store_global_a_cliente(client, store, login_as):
     login_as(client, CLIENT_EMAIL)
     html = _html(client, "/client-portal")
-    assert "DDN_DATA" in html
+    assert "DDN_DATA" not in html
     for otro in store.clients:
         if otro.email != CLIENT_EMAIL and otro.email:
             assert otro.email not in html

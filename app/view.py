@@ -1,9 +1,9 @@
 """Vista filtrada del ``DataStore`` para las plantillas y para el navegador.
 
 Motivo (invariante de AGENTS.md): *ninguna respuesta a un cliente contiene datos
-de otros clientes*. Las plantillas y ``window.DDN_DATA`` acceden al store a través
-de ``StoreView``, que entrega cada colección ya filtrada según el rol y la
-propiedad, en lugar de exponer el store crudo.
+de otros clientes*. Las plantillas acceden al store a través de ``StoreView``,
+que entrega cada colección ya filtrada según el rol y la propiedad, en lugar de
+exponer el store crudo.
 
 Reglas aplicadas (matriz de ``app/permissions.py``):
 

@@ -1,0 +1,31 @@
+{% if can('catalog:create') %}
+<div id="destination-editor-modal" class="modal-overlay">
+  <section role="dialog" aria-modal="true" aria-labelledby="destination-editor-title" class="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/15 bg-slate-900 p-5 text-white">
+    <div class="mb-4 flex items-center justify-between">
+      <h2 id="destination-editor-title" class="text-lg font-bold">Nuevo destino</h2>
+      <button type="button" onclick="closeModal('destination-editor-modal')" class="min-h-11 min-w-11 rounded-xl hover:bg-white/10" aria-label="Cerrar">×</button>
+    </div>
+    <form method="post" data-admin-json-form>
+      {{ m.csrf_input() }}
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {% for name, label, type in [('name','Nombre','text'),('country','País','text'),('region','Región','text'),('cover_image','URL de imagen','url'),('weather_type','Clima','text'),('best_season','Mejor época','text'),('base_price_usd','Precio desde (USD)','number'),('rating','Calificación','number'),('status','Estado','text')] %}
+        <label class="space-y-1 text-xs text-slate-300">{{ label }}
+          <input name="{{ name }}" type="{{ type }}" {% if name == 'name' %}required{% endif %} {% if type == 'number' %}min="0" step="0.01"{% endif %} class="min-h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-white">
+        </label>
+        {% endfor %}
+        <label class="space-y-1 text-xs text-slate-300 sm:col-span-2">Descripción
+          <textarea name="description" rows="3" class="w-full rounded-xl border border-white/10 bg-black/30 p-3 text-white"></textarea>
+        </label>
+        <label class="space-y-1 text-xs text-slate-300 sm:col-span-2">Meses de temporada alta (separados por coma)
+          <input name="high_season_months" class="min-h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-white">
+        </label>
+        <label class="space-y-1 text-xs text-slate-300 sm:col-span-2">Atracciones (separadas por coma)
+          <input name="popular_attractions" class="min-h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-white">
+        </label>
+      </div>
+      <p data-form-error class="mt-3 hidden text-sm text-rose-300" role="alert"></p>
+      <button class="mt-4 min-h-11 rounded-xl bg-indigo-600 px-4 font-bold">Guardar destino</button>
+    </form>
+  </section>
+</div>
+{% endif %}

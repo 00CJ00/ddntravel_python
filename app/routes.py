@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import date, timedelta
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session, jsonify,
@@ -193,6 +194,22 @@ def find_payment(payment_id: str):
     return store.get_payment(payment_id)
 
 
+def payments_by_booking(bookings):
+    """Devuelve solo los pagos de las reservas visibles en esta página."""
+    booking_ids = {booking.id for booking in bookings}
+    result = {}
+    for payment in store.payments:
+        if payment.booking_id in booking_ids:
+            result.setdefault(payment.booking_id, []).append({
+                "id": payment.id,
+                "receipt_number": payment.receipt_number,
+                "amount": str(payment.amount),
+                "status": payment.status,
+                "kind": payment.kind,
+            })
+    return result
+
+
 def not_implemented_yet(feature: str):
     """501 explícito para funcionalidades planificadas en fases posteriores.
 
@@ -211,9 +228,8 @@ def inject_globals():
     """Inyecta en Jinja una vista **filtrada** del store, nunca el store crudo.
 
     Para el rol ``client`` el store exposé solo su propio registro y el catálogo
-    público; ``window.DDN_DATA`` (en base.html) recibe esa misma vista, de modo
-    que ninguna respuesta contiene datos de otros clientes. La eliminación de
-    ``window.DDN_DATA`` por completo es trabajo de la fase P7.
+    público. Las opciones que el navegador necesita se renderizan en el servidor
+    o se obtienen mediante endpoints que aplican permisos y propiedad.
     """
     current_user = get_current_user()
     view = store_view(store, current_user)
@@ -231,13 +247,7 @@ def inject_globals():
     # Mapa permiso → bool para que el JS decida qué botones mostrar. Es la misma
     # matriz que aplica el servidor: solo oculta botones, nunca autoriza.
     client_permissions = {p: can(p, current_user) for p in PERMISSIONS}
-    client_side_data = {
-        "clients": [c.to_dict() for c in view.clients],
-        "packages": [p.to_dict() for p in view.packages],
-        "hotels": [h.to_dict() for h in view.hotels],
-        "flights": [f.to_dict() for f in view.flights],
-        "currentUser": current_user.to_dict() if current_user else None,
-    }
+    today = date.today()
     return {
         "store": view,
         "current_user": current_user,
@@ -245,8 +255,9 @@ def inject_globals():
         "theme": session.get("theme", "deep-space"),
         "notifications": visible_notifs,
         "unread_notifications": unread,
-        "client_side_data": client_side_data,
         "client_permissions": client_permissions,
+        "booking_default_departure": today.isoformat(),
+        "booking_default_return": (today + timedelta(days=5)).isoformat(),
     }
 
 
@@ -346,8 +357,10 @@ def ai_predictive():
 @bp.route("/bookings")
 @permission_required("bookings:view")
 def bookings():
+    visible_bookings = list(reversed(store.bookings))
     return render_template("bookings.html", active_tab="bookings",
-                            bookings=list(reversed(store.bookings)))
+                           bookings=visible_bookings,
+                           payments_by_booking=payments_by_booking(visible_bookings))
 
 
 @bp.route("/clients")
@@ -372,7 +385,15 @@ def destinations():
 @bp.route("/admin/destinations", methods=["POST"])
 @permission_required("catalog:create")
 def admin_add_destination():
-    data = request.form
+    data = request.form.to_dict()
+    data["high_season_months"] = [
+        int(value.strip()) for value in data.get("high_season_months", "").split(",")
+        if value.strip().isdigit()
+    ]
+    data["popular_attractions"] = [
+        value.strip() for value in data.get("popular_attractions", "").split(",")
+        if value.strip()
+    ]
     from . import validators
     errors = validators.validate_catalog("destination", dict(data))
     if errors:
@@ -384,7 +405,17 @@ def admin_add_destination():
 @bp.route("/admin/destinations/<int:dest_id>", methods=["POST"])
 @permission_required("catalog:edit")
 def admin_edit_destination(dest_id):
-    data = request.form
+    data = request.form.to_dict()
+    if "high_season_months" in data:
+        data["high_season_months"] = [
+            int(value.strip()) for value in data["high_season_months"].split(",")
+            if value.strip().isdigit()
+        ]
+    if "popular_attractions" in data:
+        data["popular_attractions"] = [
+            value.strip() for value in data["popular_attractions"].split(",")
+            if value.strip()
+        ]
     from . import validators
     errors = validators.validate_catalog("destination", dict(data))
     if errors:
@@ -421,9 +452,11 @@ def admin_new_package():
     from . import validators
     errors = validators.validate_catalog("package", dict(f))
     if errors:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
         flash("; ".join(errors), "error")
         return redirect(url_for("main.packages"))
-    store.add_package(
+    package = store.add_package(
         get_current_user(),
         title=f.get("title", ""), destination_id=f.get("destination_id", ""),
         destination_name=f.get("destination_name", ""), duration_days=int_field(f, "duration_days", 1),
@@ -436,6 +469,8 @@ def admin_new_package():
         inclusions=f.get("inclusions", ""), departure_dates=f.get("departure_dates", ""),
         description=f.get("description", ""),
     )
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"success": True, "id": package.id, "title": package.title})
     flash("Paquete turístico creado correctamente.", "success")
     return redirect(url_for("main.packages"))
 
@@ -477,6 +512,8 @@ def admin_new_hotel():
     from . import validators
     errors = validators.validate_catalog("hotel", dict(f))
     if errors:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"success": False, "errors": errors}), 422
         flash("; ".join(errors), "error")
         return redirect(url_for("main.hotels"))
     room_types = []
@@ -487,14 +524,18 @@ def admin_new_hotel():
             "price_per_night": float_field(f, f"room_type[{i}][price_per_night]", 0.0),
             "available": int_field(f, f"room_type[{i}][available]", 0, minimum=0),
         })
-    store.add_hotel(
+    amenities = [value.strip() for value in f.get("amenities", "").split(",") if value.strip()]
+    hotel = store.add_hotel(
         get_current_user(),
         name=f.get("name", ""), destination_id=f.get("destination_id", ""),
         destination_name=f.get("destination_name", ""), stars=int_field(f, "stars", 5, minimum=1, maximum=5),
         address=f.get("address", ""), rating=float_field(f, "rating", 0.0),
         image=f.get("image", ""), contact_phone=f.get("contact_phone", ""),
-        amenities=f.get("amenities", ""), room_types=room_types,
+        amenities=amenities, room_types=room_types,
     )
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"success": True, "id": hotel.id, "name": hotel.name})
+    flash("Hotel creado correctamente.", "success")
     return redirect(url_for("main.hotels"))
 
 
@@ -520,10 +561,12 @@ def admin_edit_hotel(hotel_id):
             "available": int_field(f, f"room_type[{i}][available]",
                                    old.rooms_total if old else 0, minimum=0),
         })
-    updated = store.edit_hotel(get_current_user(), hotel_id, room_types=room_types,
-                               **{k: v for k, v in f.items() if k in
-                                  {"name", "destination_id", "destination_name", "stars", "address",
-                                   "rating", "image", "contact_phone", "amenities"}})
+    changes = {k: v for k, v in f.items() if k in
+               {"name", "destination_id", "destination_name", "stars", "address",
+                "rating", "image", "contact_phone"}}
+    changes["amenities"] = [value.strip() for value in f.get("amenities", "").split(",")
+                            if value.strip()]
+    updated = store.edit_hotel(get_current_user(), hotel_id, room_types=room_types, **changes)
     return jsonify({"success": True, "name": updated.name if updated else hotel.name})
 
 
@@ -540,9 +583,11 @@ def admin_new_flight():
     from . import validators
     errors = validators.validate_catalog("flight", dict(f))
     if errors:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
         flash("; ".join(errors), "error")
         return redirect(url_for("main.flights"))
-    store.add_flight(
+    flight = store.add_flight(
         get_current_user(),
         airline=f.get("airline", ""), flight_number=f.get("flight_number", ""),
         origin=f.get("origin", ""), destination=f.get("destination", ""),
@@ -552,6 +597,8 @@ def admin_new_flight():
         status=f.get("status", "A tiempo"), baggage_allowance=f.get("baggage_allowance", ""),
         image=f.get("image", ""),
     )
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"success": True, "id": flight.id, "flight_number": flight.flight_number})
     flash("Vuelo creado correctamente.", "success")
     return redirect(url_for("main.flights"))
 
@@ -588,9 +635,11 @@ def admin_new_transport():
     from . import validators
     errors = validators.validate_catalog("transport", dict(f))
     if errors:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
         flash("; ".join(errors), "error")
         return redirect(url_for("main.transports"))
-    store.add_transport(
+    transport = store.add_transport(
         get_current_user(),
         type=f.get("type", ""), route=f.get("route", ""), vehicle_model=f.get("vehicle_model", ""),
         capacity=int_field(f, "capacity", 0, minimum=0), available_seats=int_field(f, "available_seats", 0, minimum=0),
@@ -599,6 +648,8 @@ def admin_new_transport():
         amenities=[item.strip() for item in f.get("amenities", "").split(",") if item.strip()],
         image=f.get("image", ""),
     )
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"success": True, "id": transport.id, "type": transport.type})
     flash("Transporte creado correctamente.", "success")
     return redirect(url_for("main.transports"))
 
@@ -641,9 +692,11 @@ def admin_new_activity():
     from . import validators
     errors = validators.validate_catalog("activity", dict(f))
     if errors:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"success": False, "errors": errors, "error": errors[0]}), 422
         flash("; ".join(errors), "error")
         return redirect(url_for("main.activities"))
-    store.add_activity(
+    activity = store.add_activity(
         get_current_user(),
         title=f.get("title", ""), destination_id=f.get("destination_id", ""),
         destination_name=f.get("destination_name", ""), duration_hours=int_field(f, "duration_hours", 1),
@@ -652,6 +705,8 @@ def admin_new_activity():
         description=f.get("description", ""), category=f.get("category", "Turismo"),
         schedule=f.get("schedule", ""),
     )
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"success": True, "id": activity.id, "title": activity.title})
     flash("Tour o actividad creado correctamente.", "success")
     return redirect(url_for("main.activities"))
 
@@ -772,6 +827,21 @@ def admin_delete_user(user_id):
     return redirect(url_for("main.admin_users"))
 
 
+@bp.route("/admin/users/<int:user_id>/status", methods=["POST"])
+@permission_required("users:manage")
+def admin_set_user_status(user_id):
+    user = store.get_user(user_id)
+    if user is None:
+        flash("Usuario no encontrado.", "error")
+    elif request.form.get("is_active") == "1":
+        result = store.update_user(get_current_user(), user_id, is_active=True)
+        flash(result["message"], "success" if result["success"] else "error")
+    else:
+        result = store.deactivate_user(get_current_user(), user_id)
+        flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("main.admin_users"))
+
+
 # --- Reserva: edición (fechas, viajeros, notas; recalcula total e inventario) ---
 @bp.route("/bookings/<int:booking_id>/edit", methods=["POST"])
 @permission_required("bookings:edit")
@@ -864,7 +934,8 @@ def client_portal():
     user = get_current_user()
     my_bookings = own_records(user, store.bookings)
     return render_template("client_portal.html", active_tab="client-portal", my_bookings=my_bookings,
-                           packages=store.packages[:4])
+                           packages=store.packages[:4],
+                           payments_by_booking=payments_by_booking(my_bookings))
 
 
 # ----------------------------------------------------------------------
@@ -1237,8 +1308,10 @@ def update_booking_status(booking_id):
     result = store.update_booking_status(user, booking_id, request.form.get("status", "Pendiente"))
     if not result.get("success"):
         flash(result["message"], "error")
+        visible_bookings = own_records(user, store.bookings)
         return render_template("bookings.html", active_tab="bookings",
-                               bookings=own_records(user, store.bookings),
+                               bookings=visible_bookings,
+                               payments_by_booking=payments_by_booking(visible_bookings),
                                error=result["message"]), 422
     flash(result["message"], "success")
     return redirect_back("main.bookings")

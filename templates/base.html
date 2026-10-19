@@ -308,6 +308,8 @@
 
 {% include 'partials/modals.html' %}
 {% include 'partials/catalog_editor.html' %}
+{% include 'partials/destination_editor.html' %}
+{% include 'partials/hotel_editor.html' %}
 
 <!-- Chat en vivo widget -->
 {% if current_user %}
@@ -339,11 +341,9 @@
 </div>
 {% endif %}
 
-{# ``client_side_data`` ya viene filtrado por StoreView: un cliente no recibe
-   datos de otros. Su eliminación completa es trabajo de la fase P7.
-   ``DDN_PERMS`` permite ocultar acciones en el HTML generado por JavaScript. #}
-<script>window.DDN_DATA = {{ client_side_data|tojson }};</script>
+{# Permisos para ocultar acciones en JavaScript; el servidor siempre autoriza. #}
 <script>window.DDN_PERMS = {{ client_permissions|tojson }};</script>
+<script src="{{ url_for('static', filename='js/api.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>

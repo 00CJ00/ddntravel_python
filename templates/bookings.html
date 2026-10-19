@@ -39,7 +39,7 @@
             <td class="p-4 font-bold text-white whitespace-nowrap">${{ b.total_price|usd }} USD
               <span class="block text-3xs font-medium {{ 'text-emerald-400' if b.payment_status=='Pagado' else 'text-amber-400' }}">{{ b.payment_status }}</span></td>
             <td class="p-4 text-right whitespace-nowrap space-x-1">
-              <button onclick='openBookingDetail({{ b.to_dict()|tojson }})' class="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-indigo-300 hover:text-white text-2xs font-bold">Detalle</button>
+              <button onclick='openBookingDetail({{ b.to_dict()|tojson }}, {{ payments_by_booking.get(b.id, [])|tojson }})' class="min-h-11 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-indigo-300 hover:text-white text-2xs font-bold">Detalle</button>
             </td>
           </tr>
           {% endfor %}

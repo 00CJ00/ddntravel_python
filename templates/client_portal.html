@@ -31,7 +31,7 @@
         <p class="text-slate-400">{{ b.departure_date }} ➔ {{ b.return_date }} · {{ b.travelers }} viajero(s)</p>
         <div class="flex items-center justify-between pt-1.5 border-t border-white/5">
           <span class="font-bold text-white">${{ b.total_price|usd }} USD</span>
-          <button onclick='openBookingDetail({{ b.to_dict()|tojson }})' class="text-indigo-400 hover:text-indigo-300 font-bold text-2xs">Ver Detalle</button>
+          <button onclick='openBookingDetail({{ b.to_dict()|tojson }}, {{ payments_by_booking.get(b.id, [])|tojson }})' class="min-h-11 rounded-lg px-2 text-indigo-400 hover:text-indigo-300 font-bold text-2xs">Ver Detalle</button>
         </div>
       </div>
       {% endfor %}

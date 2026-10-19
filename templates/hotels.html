@@ -2,9 +2,12 @@
 {% import 'macros.html' as m %}
 {% block content %}
 <div class="space-y-6 view-fade-in">
-  <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
-    {{ m.icon('hotel','w-6 h-6 text-sky-400') }} Gestión de Hoteles & Alojamientos Aliados (RF-07)
-  </h1>
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <h1 class="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-2.5">
+      {{ m.icon('hotel','w-6 h-6 text-sky-400') }} Gestión de Hoteles & Alojamientos Aliados (RF-07)
+    </h1>
+    {% if can('catalog:create') %}<button type="button" data-hotel-new class="min-h-11 self-start rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white">Nuevo hotel</button>{% endif %}
+  </div>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
     {% for hotel in hotels %}
@@ -24,6 +27,15 @@
           <div class="flex items-center justify-between"><span class="text-slate-400">{{ room.type }}</span><span class="text-emerald-400 font-bold">${{ room.price_per_night|usd }}/noche</span></div>
           {% endfor %}
         </div>
+        {% if can('catalog:edit') %}
+        <div class="flex gap-2 border-t border-white/5 pt-2">
+          <button type="button" data-hotel-edit data-edit-url="{{ url_for('main.admin_edit_hotel', hotel_id=hotel.id) }}" data-item='{{ hotel.to_dict()|tojson }}' data-room-types='[{% for room in hotel.room_types or [] %}{"type":{{ room.type|tojson }},"price_per_night":{{ room.price_per_night|string|tojson }},"available":{{ room.rooms_total|tojson }}}{{ "," if not loop.last }}{% endfor %}]' class="min-h-11 flex-1 rounded-xl bg-indigo-500/15 text-xs font-bold text-indigo-200">Editar</button>
+          <form method="post" action="{{ url_for('main.admin_delete_hotel', hotel_id=hotel.id) }}" data-catalog-delete data-label="{{ hotel.name }}">
+            {{ m.csrf_input() }}
+            <button class="min-h-11 rounded-xl bg-rose-500/15 px-3 text-xs font-bold text-rose-200">Eliminar</button>
+          </form>
+        </div>
+        {% endif %}
       </div>
     </div>
     {% endfor %}

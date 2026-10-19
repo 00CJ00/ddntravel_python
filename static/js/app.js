@@ -7,11 +7,9 @@
 // Se lee de <meta name="csrf-token"> (inyectado en base.html) y de los
 // formularios, de modo que el mismo helper sirve para fetch y para forms.
 // ------------------------------------------------------------
+// api.js reads the shared meta[name="csrf-token"] token for this module.
 function getCsrfToken() {
-  const meta = document.querySelector('meta[name="csrf-token"]');
-  if (meta && meta.content) return meta.content;
-  const input = document.querySelector('input[name="csrf_token"]');
-  return input ? input.value : '';
+  return window.DDNApi.csrfToken();
 }
 
 function csrfHeaders(extra = {}) {
@@ -22,8 +20,7 @@ function csrfHeaders(extra = {}) {
 // Wrapper de fetch que aplica CSRF, normaliza errores JSON y avisa al usuario
 // cuando la sesión ha caducado (401/403) o el token es inválido (400).
 async function csrfFetch(url, options = {}) {
-  const config = { credentials: 'same-origin', ...options, headers: csrfHeaders(options.headers || {}) };
-  const response = await fetch(url, config);
+  const response = await window.DDNApi.request(url, options);
   if (response.status === 400) {
     const detail = await response.text();
     if (detail.includes('CSRF')) {
@@ -103,6 +100,25 @@ function openCatalogEditor(kind, item = null, editUrl = '') {
 }
 
 document.addEventListener('click', event => {
+  if (event.target.closest('[data-destination-new]')) {
+    openDestinationEditor();
+    return;
+  }
+  if (event.target.closest('[data-hotel-new]')) {
+    openHotelEditor();
+    return;
+  }
+  const destinationEdit = event.target.closest('[data-destination-edit]');
+  if (destinationEdit) {
+    openDestinationEditor(JSON.parse(destinationEdit.dataset.item), destinationEdit.dataset.editUrl);
+    return;
+  }
+  const hotelEdit = event.target.closest('[data-hotel-edit]');
+  if (hotelEdit) {
+    openHotelEditor(JSON.parse(hotelEdit.dataset.item), hotelEdit.dataset.editUrl,
+      JSON.parse(hotelEdit.dataset.roomTypes || '[]'));
+    return;
+  }
   const createButton = event.target.closest('[data-catalog-new]');
   if (createButton) {
     openCatalogEditor(createButton.dataset.catalogNew);
@@ -122,9 +138,164 @@ document.addEventListener('click', event => {
   }
 });
 
+function openDestinationEditor(item = null, editUrl = '') {
+  const form = document.querySelector('#destination-editor-modal form');
+  form.reset();
+  form.action = item ? editUrl : '/admin/destinations';
+  document.getElementById('destination-editor-title').textContent = item ? 'Editar destino' : 'Nuevo destino';
+  if (item) {
+    Object.entries(item).forEach(([key, value]) => {
+      const field = form.elements.namedItem(key);
+      if (field && value !== null && value !== undefined) {
+        field.value = Array.isArray(value) ? value.join(', ') : String(value);
+      }
+    });
+  } else if (!form.elements.namedItem('status').value) {
+    form.elements.namedItem('status').value = 'Activo';
+  }
+  openModal('destination-editor-modal');
+}
+
+function addHotelRoomRow(container, room = {}) {
+  const index = container.children.length;
+  const row = document.createElement('div');
+  row.className = 'grid grid-cols-1 gap-2 rounded-xl border border-white/10 p-3 sm:grid-cols-3';
+  [
+    ['type', 'Tipo', room.type || ''],
+    ['price_per_night', 'Precio por noche', room.price_per_night ?? ''],
+    ['available', 'Habitaciones disponibles', room.available ?? '']
+  ].forEach(([name, label, value]) => {
+    const wrapper = document.createElement('label');
+    wrapper.className = 'space-y-1 text-xs text-slate-300';
+    wrapper.textContent = label;
+    const input = document.createElement('input');
+    input.name = `room_type[${index}][${name}]`;
+    input.value = value;
+    input.required = name === 'type';
+    if (name !== 'type') {
+      input.type = 'number';
+      input.min = '0';
+      input.step = name === 'available' ? '1' : '0.01';
+    }
+    input.className = 'min-h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-white';
+    wrapper.append(input);
+    row.append(wrapper);
+  });
+  container.append(row);
+}
+
+function openHotelEditor(item = null, editUrl = '', roomTypes = []) {
+  const form = document.querySelector('[data-hotel-form]');
+  const container = form.querySelector('[data-hotel-room-rows]');
+  form.reset();
+  container.replaceChildren();
+  form.action = item ? editUrl : '/admin/hotels/new';
+  document.getElementById('hotel-editor-title').textContent = item ? 'Editar hotel' : 'Nuevo hotel';
+  if (item) {
+    Object.entries(item).forEach(([key, value]) => {
+      const field = form.elements.namedItem(key);
+      if (field && value !== null && value !== undefined) {
+        field.value = Array.isArray(value) ? value.join(', ') : String(value);
+      }
+    });
+  }
+  (roomTypes.length ? roomTypes : [{}]).forEach(room => addHotelRoomRow(container, room));
+  openModal('hotel-editor-modal');
+}
+
+document.querySelector('[data-add-room-type]')?.addEventListener('click', () => {
+  addHotelRoomRow(document.querySelector('[data-hotel-room-rows]'));
+});
+
+document.querySelectorAll('[data-admin-json-form]').forEach(form => {
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const errorBox = form.querySelector('[data-form-error]');
+    errorBox.textContent = '';
+    errorBox.classList.add('hidden');
+    const body = new FormData(form);
+    const roomRows = form.querySelectorAll('[data-hotel-room-rows] > div');
+    if (roomRows.length) body.set('room_types_count', String(roomRows.length));
+    try {
+      const response = await csrfFetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body
+      });
+      const contentType = response.headers.get('content-type') || '';
+      const result = contentType.includes('application/json') ? await response.json() : {};
+      if (!response.ok || (contentType.includes('application/json') && !result.success)) {
+        throw new Error((result.errors || [result.error || response.error]).filter(Boolean).join(' '));
+      }
+      window.location.reload();
+    } catch (error) {
+      errorBox.textContent = error.message || 'No se pudo guardar el recurso.';
+      errorBox.classList.remove('hidden');
+    }
+  });
+});
+
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-client-edit]');
+  if (!button) return;
+  const form = document.querySelector('[data-client-edit-form]');
+  const item = JSON.parse(button.dataset.item);
+  form.reset();
+  form.action = `/admin/clients/${button.dataset.clientId}/edit`;
+  Object.entries(item).forEach(([key, value]) => {
+    const field = form.elements.namedItem(key);
+    if (field && value !== null && value !== undefined) {
+      field.value = Array.isArray(value) ? value.join(', ') : String(value);
+    }
+  });
+  openModal('client-editor-modal');
+});
+
+document.querySelectorAll('[data-client-edit-form]').forEach(form => {
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const errorBox = form.querySelector('[data-form-error]');
+    errorBox.textContent = '';
+    errorBox.classList.add('hidden');
+    try {
+      const response = await csrfFetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new FormData(form)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error((result.errors || [result.error]).filter(Boolean).join(' '));
+      }
+      window.location.reload();
+    } catch (error) {
+      errorBox.textContent = error.message || 'No se pudo actualizar el cliente.';
+      errorBox.classList.remove('hidden');
+    }
+  });
+});
+
+document.querySelectorAll('[data-client-delete]').forEach(form => {
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!window.confirm(`¿Eliminar el cliente «${form.dataset.label}»?`)) return;
+    try {
+      const response = await csrfFetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new FormData(form)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'No se pudo eliminar el cliente.');
+      window.location.reload();
+    } catch (error) {
+      window.alert(error.message || 'No se pudo eliminar el cliente.');
+    }
+  });
+});
+
 document.querySelectorAll('[data-catalog-editor]').forEach(form => {
   form.addEventListener('submit', async event => {
-    if (form.dataset.mode !== 'edit') return;
     event.preventDefault();
     const errorBox = document.getElementById('catalog-editor-error');
     errorBox.textContent = '';
@@ -303,6 +474,22 @@ function refreshBookingRoomTypes() {
 function initBookingQuote() {
   const form = document.getElementById('new-booking-form');
   if (!form) return;
+  const departure = form.elements.namedItem('departure_date');
+  const returnDate = form.elements.namedItem('return_date');
+  if (departure && returnDate) {
+    departure.addEventListener('change', () => {
+      returnDate.min = departure.value;
+      if (returnDate.value <= departure.value) {
+        const nextDay = new Date(`${departure.value}T00:00:00`);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const year = nextDay.getFullYear();
+        const month = String(nextDay.getMonth() + 1).padStart(2, '0');
+        const day = String(nextDay.getDate()).padStart(2, '0');
+        returnDate.value = `${year}-${month}-${day}`;
+      }
+      refreshBookingQuote();
+    });
+  }
   ['package_id', 'room_type_id', 'flight_id', 'travelers', 'rooms_count',
     'departure_date', 'return_date', 'check_in', 'check_out',
     'promo_code', 'client_id'].forEach(name => {
@@ -329,7 +516,7 @@ document.addEventListener('DOMContentLoaded', initBookingQuote);
 // ------------------------------------------------------------
 // Detalle de reserva / factura (poblados desde data-json embebido en filas)
 // ------------------------------------------------------------
-function openBookingDetail(booking) {
+function openBookingDetail(booking, payments = []) {
   const b = typeof booking === 'string' ? JSON.parse(booking) : booking;
   window._lastBookingDetail = b;
   const body = document.getElementById('booking-detail-body');
@@ -354,7 +541,10 @@ function openBookingDetail(booking) {
     ${b.notes ? `<div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200">${b.notes}</div>` : ''}
     <div class="flex flex-wrap gap-2 pt-2">
       ${window.DDN_PERMS && window.DDN_PERMS['payments:create'] && b.payment_status !== 'Pagado' && b.status !== 'Cancelada' ? `<button onclick="closeModal('modal-booking-detail'); document.getElementById('payment-booking-select').value='${b.id}'; openModal('modal-new-payment');" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-2xs font-bold">Registrar Pago</button>` : ''}
-      <button onclick="closeModal('modal-booking-detail'); openInvoice(window._lastBookingDetail);" class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white text-2xs font-bold">Ver Factura</button>
+      ${payments.length ? `<div class="w-full rounded-xl border border-white/10 bg-white/5 p-3"><p class="mb-2 font-semibold text-slate-300">Pagos y facturas</p>${payments.map(payment => `<div class="flex flex-col gap-2 border-b border-white/5 py-2 last:border-0 sm:flex-row sm:items-center sm:justify-between"><span>${payment.receipt_number} · $${Number(payment.amount).toLocaleString()} · ${payment.status}</span><div class="flex flex-wrap gap-2">${window.DDN_PERMS && window.DDN_PERMS['payments:invoice'] ? `<a href="/payments/${payment.id}/factura" class="min-h-11 rounded-lg px-2 py-2 text-indigo-300 underline">Descargar factura PDF</a>` : ''}${window.DDN_PERMS && window.DDN_PERMS['payments:create'] && payment.status === 'Pendiente_verificacion' ? `<form method="POST" action="/payments/${payment.id}/verify"><input type="hidden" name="csrf_token" value="${getCsrfToken()}"><button class="min-h-11 rounded-lg bg-emerald-600/30 px-3 font-bold text-emerald-200">Verificar pago</button></form>` : ''}${window.DDN_PERMS && window.DDN_PERMS['payments:void'] && payment.kind === 'pago' && payment.status !== 'Anulado' ? `<form method="POST" action="/payments/${payment.id}/void" class="flex flex-wrap items-center gap-2"><input type="hidden" name="csrf_token" value="${getCsrfToken()}"><input name="reason" required maxlength="500" placeholder="Motivo de anulación" class="min-h-11 min-w-32 rounded-lg bg-black/30 px-2"><button class="min-h-11 rounded-lg bg-rose-500/20 px-3 font-bold text-rose-200">Anular / reembolsar</button></form>` : ''}</div></div>`).join('')}</div>` : '<p class="text-slate-400">Aún no hay pagos registrados para esta reserva.</p>'}
+      ${window.DDN_PERMS && window.DDN_PERMS['bookings:edit'] && b.status !== 'Cancelada' ? `<form method="POST" action="/bookings/${b.id}/edit" class="grid w-full grid-cols-1 gap-2 rounded-xl border border-white/10 bg-white/5 p-3 sm:grid-cols-2"><input type="hidden" name="csrf_token" value="${getCsrfToken()}"><label>Salida<input type="date" name="departure_date" value="${b.departure_date}" required class="mt-1 w-full rounded-lg bg-black/30 p-2"></label><label>Retorno<input type="date" name="return_date" value="${b.return_date}" required class="mt-1 w-full rounded-lg bg-black/30 p-2"></label><label>Viajeros<input type="number" min="1" max="50" name="travelers" value="${b.travelers}" required class="mt-1 w-full rounded-lg bg-black/30 p-2"></label><label>Notas<textarea name="notes" class="mt-1 w-full rounded-lg bg-black/30 p-2">${b.notes || ''}</textarea></label><button class="min-h-11 rounded-lg bg-indigo-600 px-3 py-2 font-bold sm:col-span-2">Guardar cambios</button></form>` : ''}
+      ${window.DDN_PERMS && window.DDN_PERMS['bookings:status'] && b.status !== 'Cancelada' ? `<form method="POST" action="/bookings/${b.id}/status" class="flex w-full flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3"><input type="hidden" name="csrf_token" value="${getCsrfToken()}"><label for="booking-status-${b.id}">Estado</label><select id="booking-status-${b.id}" name="status" class="min-h-11 rounded-lg bg-black/30 px-3">${['Pendiente','Confirmada','En Progreso','Completada','Cancelada'].map(status => `<option ${b.status === status ? 'selected' : ''}>${status}</option>`).join('')}</select><button class="min-h-11 rounded-lg bg-indigo-600 px-3 py-2 font-bold">Actualizar estado</button></form>` : ''}
+      ${window.DDN_PERMS && window.DDN_PERMS['itineraries:view'] ? `<button type="button" onclick="viewBookingItinerary(${b.id})" class="min-h-11 rounded-xl bg-sky-500/15 px-3 py-2 font-bold text-sky-200">Ver itinerario</button><pre id="booking-itinerary-${b.id}" class="hidden w-full whitespace-pre-wrap rounded-xl bg-black/30 p-3 text-slate-200"></pre>` : ''}
       ${window.DDN_PERMS && window.DDN_PERMS['bookings:cancel'] && b.status !== 'Cancelada' && b.status !== 'Completada' ? `<form method="POST" action="/bookings/${b.id}/cancel" onsubmit="return confirm('¿Cancelar esta reserva?');" class="inline">
         <input type="hidden" name="csrf_token" value="${getCsrfToken()}">
         <button class="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 text-2xs font-bold">Cancelar Reserva</button></form>` : ''}
@@ -363,28 +553,16 @@ function openBookingDetail(booking) {
   openModal('modal-booking-detail');
 }
 
-function openInvoice(bookingJson) {
-  const b = typeof bookingJson === 'string' ? JSON.parse(bookingJson) : bookingJson;
-  const body = document.getElementById('invoice-body');
-  body.innerHTML = `
-    <div class="flex items-center justify-between border-b border-slate-200 pb-3">
-      <div><p class="font-black text-lg text-indigo-700">DDN TRAVEL</p><p class="text-slate-500">Agencia de Viajes Turísticos</p></div>
-      <div class="text-right"><p class="font-bold">Factura</p><p class="font-mono text-slate-500">${b.booking_code}</p></div>
-    </div>
-    <div><p class="text-slate-500">Cliente</p><p class="font-semibold">${b.client_name}</p><p class="text-slate-500">${b.client_email || ''}</p></div>
-    <table class="w-full text-left mt-2">
-      <tbody>
-        <tr class="border-t border-slate-100"><td class="py-1.5 text-slate-500">Paquete / Servicio</td><td class="py-1.5 text-right font-medium">${b.package_name || 'Itinerario Personalizado'}</td></tr>
-        <tr class="border-t border-slate-100"><td class="py-1.5 text-slate-500">Destino</td><td class="py-1.5 text-right font-medium">${b.destination_name || '-'}</td></tr>
-        <tr class="border-t border-slate-100"><td class="py-1.5 text-slate-500">Viajeros</td><td class="py-1.5 text-right font-medium">${b.travelers}</td></tr>
-        <tr class="border-t border-slate-200"><td class="py-1.5 font-bold">Total</td><td class="py-1.5 text-right font-bold">$${Number(b.total_price).toLocaleString()} USD</td></tr>
-        <tr><td class="py-1.5 text-slate-500">Pagado</td><td class="py-1.5 text-right">$${Number(b.amount_paid).toLocaleString()} USD</td></tr>
-        <tr><td class="py-1.5 text-slate-500">Saldo Pendiente</td><td class="py-1.5 text-right font-semibold ${(b.total_price - b.amount_paid) > 0 ? 'text-rose-600' : 'text-emerald-600'}">$${Number(b.total_price - b.amount_paid).toLocaleString()} USD</td></tr>
-      </tbody>
-    </table>
-    <p class="text-slate-400 text-center pt-2 border-t border-slate-100">Gracias por viajar con DDN Travel — Documento generado automáticamente.</p>
-  `;
-  openModal('modal-invoice');
+async function viewBookingItinerary(bookingId) {
+  const response = await csrfFetch(`/bookings/${bookingId}/itinerary`);
+  const result = await response.json();
+  const output = document.getElementById(`booking-itinerary-${bookingId}`);
+  if (!response.ok) {
+    showToast(result.error || 'No se pudo cargar el itinerario.', 'error');
+    return;
+  }
+  output.textContent = JSON.stringify(result.content, null, 2);
+  output.classList.remove('hidden');
 }
 
 // ------------------------------------------------------------
@@ -451,7 +629,11 @@ async function submitRecommendForm(e) {
   btn.disabled = true;
   btn.textContent = 'Analizando afinidad con IA...';
   const formData = Object.fromEntries(new FormData(form).entries());
-  const client = (window.DDN_DATA.clients || []).find(c => c.id === formData.clientId) || { name: 'Cliente Potencial' };
+  const clientOption = form.elements.namedItem('clientId')?.selectedOptions[0];
+  const client = {
+    category: clientOption?.dataset.category || '',
+    budget_preference: clientOption?.dataset.budgetPreference || ''
+  };
   const payload = {
     clientProfile: client, budget: parseFloat(formData.budget), travelStyle: formData.travelStyle,
     travelersCount: parseInt(formData.travelersCount), interests: formData.interests

@@ -1,0 +1,27 @@
+{% if can('catalog:create') %}
+<div id="hotel-editor-modal" class="modal-overlay">
+  <section role="dialog" aria-modal="true" aria-labelledby="hotel-editor-title" class="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/15 bg-slate-900 p-5 text-white">
+    <div class="mb-4 flex items-center justify-between">
+      <h2 id="hotel-editor-title" class="text-lg font-bold">Nuevo hotel</h2>
+      <button type="button" onclick="closeModal('hotel-editor-modal')" class="min-h-11 min-w-11 rounded-xl hover:bg-white/10" aria-label="Cerrar">×</button>
+    </div>
+    <form method="post" data-admin-json-form data-hotel-form>
+      {{ m.csrf_input() }}
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {% for name, label, type in [('name','Nombre','text'),('destination_name','Destino','text'),('stars','Estrellas','number'),('rating','Calificación','number'),('address','Dirección','text'),('contact_phone','Teléfono','tel'),('image','URL de imagen','url'),('amenities','Comodidades (separadas por coma)','text')] %}
+        <label class="space-y-1 text-xs text-slate-300">{{ label }}
+          <input name="{{ name }}" type="{{ type }}" {% if name == 'name' %}required{% endif %} {% if name == 'stars' %}min="1" max="5" value="3"{% elif name == 'rating' %}min="0" max="5" step="0.1"{% endif %} class="min-h-11 w-full rounded-xl border border-white/10 bg-black/30 px-3 text-white">
+        </label>
+        {% endfor %}
+      </div>
+      <fieldset class="mt-4 space-y-2">
+        <legend class="text-sm font-semibold">Tipos de habitación</legend>
+        <div data-hotel-room-rows></div>
+        <button type="button" data-add-room-type class="min-h-11 rounded-lg border border-white/10 px-3 text-xs">Agregar tipo</button>
+      </fieldset>
+      <p data-form-error class="mt-3 hidden text-sm text-rose-300" role="alert"></p>
+      <button class="mt-4 min-h-11 rounded-xl bg-indigo-600 px-4 font-bold">Guardar hotel</button>
+    </form>
+  </section>
+</div>
+{% endif %}

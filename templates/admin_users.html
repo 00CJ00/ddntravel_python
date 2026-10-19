@@ -41,16 +41,29 @@
           <td class="p-4 text-white">{{ u.name }}</td>
           <td class="p-4">{{ u.email }}</td>
           <td class="p-4">{{ u.role }}</td>
-          <td class="p-4">{{ 'Sí' if u.is_active is not defined or u.is_active else 'No' }}</td>
+          <td class="p-4">{{ 'Sí' if u.is_active else 'No' }}</td>
           <td class="p-4 flex gap-2 items-center">
+            <form method="POST" action="{{ url_for('main.admin_edit_user', user_id=u.id) }}" class="flex gap-1 items-center">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <select name="role" aria-label="Rol de {{ u.email }}" class="min-h-11 rounded-lg bg-black/30 px-2 text-white">
+                {% for role in ['admin', 'employee', 'client'] %}<option value="{{ role }}" {{ 'selected' if u.role == role }}>{{ role }}</option>{% endfor %}
+              </select>
+              <button class="min-h-11 rounded-lg px-2 font-bold text-indigo-300">Guardar rol</button>
+            </form>
             <form method="POST" action="{{ url_for('main.admin_reset_password', user_id=u.id) }}" class="flex gap-1">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input name="password" type="password" minlength="8" placeholder="Nueva clave" class="px-2 py-1 rounded-lg bg-black/30 text-white text-2xs w-28">
               <button class="text-amber-400 hover:text-amber-300 font-bold">Reset</button>
             </form>
-            <form method="POST" action="{{ url_for('main.admin_delete_user', user_id=u.id) }}">
+            <form method="POST" action="{{ url_for('main.admin_set_user_status', user_id=u.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="text-red-400 hover:text-red-300 font-bold">Desactivar</button>
+              {% if u.is_active %}
+              <input type="hidden" name="is_active" value="0">
+              <button class="min-h-11 rounded-lg px-2 font-bold text-red-400" onclick="return confirm('¿Desactivar este usuario?')">Desactivar</button>
+              {% else %}
+              <input type="hidden" name="is_active" value="1">
+              <button class="min-h-11 rounded-lg px-2 font-bold text-emerald-400">Activar</button>
+              {% endif %}
             </form>
           </td>
         </tr>

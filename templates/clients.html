@@ -33,7 +33,11 @@
       <p class="text-2xs text-slate-400">Destinos preferidos: {{ client.preferred_destinations|join(', ') }}</p>
       <div class="flex items-center justify-between pt-2 border-t border-white/5">
         <span class="text-3xs px-2 py-0.5 rounded-md bg-emerald-500/30 text-emerald-100 border border-emerald-400/40 font-semibold shadow-sm">{{ client.status }}</span>
-        <button onclick="openNewBookingModal(''); document.getElementById('booking-client').value='{{ client.id }}';" class="text-2xs font-bold text-indigo-400 hover:text-indigo-300">+ Reserva</button>
+        <div class="flex flex-wrap items-center gap-2">
+          {% if can('clients:edit') %}<button type="button" data-client-edit data-client-id="{{ client.id }}" data-item='{{ client.to_dict()|tojson }}' class="min-h-11 rounded-lg px-2 text-xs font-bold text-indigo-300">Editar</button>{% endif %}
+          {% if can('clients:delete') %}<form method="post" action="{{ url_for('main.admin_delete_client', client_id=client.id) }}" data-client-delete data-label="{{ client.name }}">{{ m.csrf_input() }}<button class="min-h-11 rounded-lg px-2 text-xs font-bold text-rose-300">Eliminar</button></form>{% endif %}
+          {% if can('bookings:create') %}<button onclick="openNewBookingModal(''); document.getElementById('booking-client').value='{{ client.id }}';" class="min-h-11 rounded-lg px-2 text-xs font-bold text-indigo-400 hover:text-indigo-300">+ Reserva</button>{% endif %}
+        </div>
       </div>
     </div>
     {% endfor %}
