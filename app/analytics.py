@@ -134,7 +134,31 @@ def peak_seasons(bookings, factor=PEAK_SEASON_FACTOR) -> list[str]:
     return sorted(key for key, n in counts.items() if n > threshold)
 
 
-def collect_stats(bookings, payments, packages, clients) -> dict:
+def recent_alerts(notifications, limit=10) -> list[dict]:
+    """Alertas automáticas recientes visibles para el personal (RF-14).
+
+    Las alertas se generan con ``type='warning'`` y ``visible_roles`` de
+    staff. Se devuelven las más recientes (la lista ya viene ordenada).
+    """
+    rows = []
+    for n in notifications:
+        if _attr(n, "type") != "warning":
+            continue
+        roles = _attr(n, "visible_roles") or []
+        if roles and not ({"admin", "employee"} & set(roles)):
+            continue
+        rows.append({
+            "title": _attr(n, "title"),
+            "message": _attr(n, "message"),
+            "link_tab": _attr(n, "link_tab"),
+            "date": _attr(n, "date"),
+        })
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def collect_stats(bookings, payments, packages, clients, notifications=None) -> dict:
     """Agrupa todas las estadísticas del dashboard (RF-14)."""
     return {
         "revenue_by_month": revenue_by_month(payments),
@@ -143,4 +167,5 @@ def collect_stats(bookings, payments, packages, clients) -> dict:
         "package_occupancy": package_occupancy(packages),
         "frequent_clients": frequent_clients(clients),
         "peak_seasons": peak_seasons(bookings),
+        "alerts": recent_alerts(notifications or []),
     }

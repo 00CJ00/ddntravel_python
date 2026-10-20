@@ -346,7 +346,8 @@ def dashboard():
 def api_dashboard_stats():
     """Estadísticas del dashboard (RF-14). Admin/employee."""
     from .analytics import collect_stats
-    stats = collect_stats(store.bookings, store.payments, store.packages, store.clients)
+    stats = collect_stats(store.bookings, store.payments, store.packages,
+                          store.clients, store.notifications)
     return jsonify({"success": True, "data": stats})
 
 

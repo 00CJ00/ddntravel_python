@@ -15,6 +15,7 @@ from app.analytics import (
     frequent_clients,
     package_occupancy,
     peak_seasons,
+    recent_alerts,
     revenue_by_month,
     top_destinations,
 )
@@ -94,8 +95,21 @@ def test_peak_seasons_sobre_media():
 def test_collect_stats_estructura():
     stats = collect_stats([_booking()], [_payment()], [_package()], [_client()])
     for key in ("revenue_by_month", "bookings_by_status", "top_destinations",
-                "package_occupancy", "frequent_clients", "peak_seasons"):
+                "package_occupancy", "frequent_clients", "peak_seasons", "alerts"):
         assert key in stats
+
+
+def test_recent_alerts_solo_staff():
+    notifications = [
+        NS(type="warning", visible_roles=["admin", "employee"],
+           title="Alerta A", message="m", link_tab="bookings", date="hoy"),
+        NS(type="warning", visible_roles=["client"],
+           title="Alerta B", message="m", link_tab="catalog", date="hoy"),
+        NS(type="info", visible_roles=["admin", "employee"],
+           title="Info", message="m", link_tab="bookings", date="hoy"),
+    ]
+    alerts = recent_alerts(notifications)
+    assert [a["title"] for a in alerts] == ["Alerta A"]
 
 
 def test_endpoint_admin_200(client, login_as):
