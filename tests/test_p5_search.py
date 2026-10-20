@@ -93,28 +93,37 @@ def test_search_bookings_cliente_ve_solo_suyas(client, store, login_as):
 
 
 @pytest.mark.parametrize("search_type", ["hotels", "flights", "transports"])
-def test_search_catalogo_interno_solo_staff(client, store, login_as, search_type):
-    """Hoteles, vuelos y transporte son staff (matriz P1): cliente ve 0."""
+def test_search_catalogo_interno_solo_staff(client, login_as, search_type):
+    """Hoteles, vuelos y transporte son staff: solo admin/employee reciben filas."""
     login_as(client, ADMIN_EMAIL)
-    admin_total = _search(client, type=search_type).get_json()["total"]
+    admin_data = _search(client, type=search_type).get_json()
+    assert admin_data["total"] > 0
+    assert len(admin_data["items"]) == admin_data["total"]
+
+    login_as(client, EMPLOYEE_EMAIL)
+    employee_data = _search(client, type=search_type).get_json()
+    assert employee_data["items"] == admin_data["items"]
+    assert employee_data["total"] == admin_data["total"]
+
     login_as(client, CLIENT_EMAIL)
-    resp = _search(client, type=search_type)
-    assert resp.status_code == 200
-    assert resp.get_json()["total"] == 0
-    assert admin_total >= 0
+    client_data = _search(client, type=search_type).get_json()
+    assert client_data["items"] == []
+    assert client_data["total"] == 0
 
 
 @pytest.mark.parametrize("search_type", ["packages", "destinations", "activities"])
-def test_search_catalogo_publico_cliente(client, store, login_as, search_type):
-    """Paquetes, destinos y actividades son catálogo público (matriz P1)."""
-    login_as(client, CLIENT_EMAIL)
-    resp = _search(client, type=search_type)
-    assert resp.status_code == 200
-    client_total = resp.get_json()["total"]
-    login_as(client, ADMIN_EMAIL)
-    admin_total = _search(client, type=search_type).get_json()["total"]
-    assert client_total == admin_total
-    assert admin_total > 0
+def test_search_catalogo_publico_todos_los_roles(client, login_as, search_type):
+    """Todos los roles reciben el mismo contenido del catálogo público."""
+    results_by_role = []
+    for email in (ADMIN_EMAIL, EMPLOYEE_EMAIL, CLIENT_EMAIL):
+        login_as(client, email)
+        data = _search(client, type=search_type).get_json()
+        assert data["total"] > 0
+        assert len(data["items"]) == data["total"]
+        results_by_role.append(data["items"])
+
+    assert results_by_role[1] == results_by_role[0]
+    assert results_by_role[2] == results_by_role[0]
 
 
 def test_search_clients_solo_staff(client, login_as):
