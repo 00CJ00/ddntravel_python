@@ -1,5 +1,7 @@
 # P5 — Dependencias y decisiones
 
+> El acta completa de verificación está en `docs/P5_verificacion.md`.
+
 ## Decisión: búsqueda restringida por rol → 0 resultados, nunca 403
 
 **Regla:** Cuando un usuario no tiene permiso para ver un tipo de búsqueda, la respuesta es `{"items": [], "total": 0, ...}` (conjunto vacío), no un error 403.
