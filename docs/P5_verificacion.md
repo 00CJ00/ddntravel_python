@@ -10,9 +10,10 @@
 
 | Comprobación | Resultado |
 |---|---|
-| Suite automática | **382 passed** (`pytest tests -q`) |
-| `/api/search` (RF-16) con filtros, paginación y 422 | **PASS** (`tests/test_p5_search.py`, 10 tests) |
-| Alcance por rol en búsqueda | **PASS**: cliente → `type=clients` total 0; `type=bookings` solo suyas |
+| Suite automática | **388 passed** (`pytest tests -q`) |
+| `/api/search` (RF-16) con filtros, paginación y 422 | **PASS** (`tests/test_p5_search.py`, 16 tests) |
+| Alcance por rol en búsqueda | **PASS**: cliente → `clients`/`hotels`/`flights`/`transports` total 0; `bookings` solo suyas; `packages`/`destinations`/`activities` abiertos (catálogo público) |
+| Sin caracteres CJK en `*.py`/`*.md` | **PASS** (`git grep -nP "[\x{4e00}-\x{9fff}]"` → 0) |
 | Reportes PDF/XLSX (RF-15) bookings/clients/occupancy | **PASS** (`tests/test_p5_reports.py`, 12 tests) |
 | Reportes payments/revenue | **PASS** (neto = pagos − reembolsos) |
 | Anti-inyección de fórmulas XLSX | **PASS**: prefijo `'` en `=`, `+`, `-`, `@` |
@@ -43,6 +44,22 @@ y a `type=bookings` (cliente sin reservas propias → 0). Detalle en
 Se añadió `db.relationship("Booking")` a `Payment` para que el reporte de
 pagos muestre el código de reserva. No altera el esquema (no requiere
 migración).
+
+### 2.4 Alcance por rol del catálogo en `/api/search` (verificado antes del merge)
+
+La matriz P1 distingue catálogo público de interno:
+
+- **Público (todos los roles):** `packages`, `destinations`, `activities`.
+- **Interno (solo admin/employee):** `hotels`, `flights`, `transports`
+  (`catalog:view_hotels/flights/transports = STAFF_ROLES`).
+
+Se corrigió la fuga: los tres searchers internos no filtraban por rol, así que
+un cliente podía listar hoteles, vuelos y transporte. Ahora devuelven `total: 0`
+para clientes (misma regla 0-vs-403 de la sección 2.1). De paso, el test
+destapó un bug preexistente: `search_flights` no aceptaba `min_stars` y la rama
+`else` de la ruta lo pasaba, por lo que `type=flights` devolvía 500; se añadió
+`**kw`. Tests: `test_search_catalogo_interno_solo_staff` (parametrizado) y
+`test_search_catalogo_publico_cliente` (parametrizado).
 
 ## 3. Alcance
 

@@ -51,8 +51,11 @@ def search_destinations(q, category="", destination="", **kw):
     return query
 
 
-def search_hotels(q, category="", destination="", min_price=None, max_price=None, min_stars=None):
+def search_hotels(q, category="", destination="", min_price=None, max_price=None,
+                  min_stars=None, current_user=None, is_staff=False):
     query = m.Hotel.query.filter(m.Hotel.deleted_at.is_(None))
+    if not is_staff and current_user is not None:
+        return m.Hotel.query.filter(m.Hotel.id == -1)
     if q:
         like = f"%{_escape_like(q)}%"
         query = query.filter(m.Hotel.name.like(like, escape="\\"))
@@ -63,8 +66,11 @@ def search_hotels(q, category="", destination="", min_price=None, max_price=None
     return query
 
 
-def search_flights(q, category="", destination="", min_price=None, max_price=None):
+def search_flights(q, category="", destination="", min_price=None, max_price=None,
+                   current_user=None, is_staff=False, **kw):
     query = m.Flight.query.filter(m.Flight.deleted_at.is_(None))
+    if not is_staff and current_user is not None:
+        return m.Flight.query.filter(m.Flight.id == -1)
     if q:
         like = f"%{_escape_like(q)}%"
         query = query.filter(or_(
@@ -90,8 +96,10 @@ def search_activities(q, category="", destination="", **kw):
     return query
 
 
-def search_transports(q, category="", destination="", **kw):
+def search_transports(q, category="", destination="", current_user=None, is_staff=False, **kw):
     query = m.Transport.query
+    if not is_staff and current_user is not None:
+        return m.Transport.query.filter(m.Transport.id == -1)
     if q:
         like = f"%{_escape_like(q)}%"
         query = query.filter(or_(

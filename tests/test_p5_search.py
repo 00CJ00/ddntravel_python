@@ -77,9 +77,8 @@ def test_search_bookings_cliente_ve_solo_suyas(client, store, login_as):
     resp = _search(client, type="bookings")
     assert resp.status_code == 200
     data = resp.get_json()
-    for item in data["items"]:
-        booking = next(b for b in store.bookings if b.id == item["id"])
-        assert booking.client_email != CLIENT_EMAIL or True
+    admin_ids = {item["id"] for item in data["items"]}
+    assert admin_ids, "el admin debe poder ver reservas del seed"
     login_as(client, CLIENT_EMAIL)
     resp2 = _search(client, type="bookings")
     data2 = resp2.get_json()
@@ -87,9 +86,35 @@ def test_search_bookings_cliente_ve_solo_suyas(client, store, login_as):
     if not client_bookings:
         assert data2["total"] == 0
     else:
+        assert data2["total"] == len(client_bookings)
         for item in data2["items"]:
             booking = next(b for b in store.bookings if b.id == item["id"])
             assert booking.client_email == CLIENT_EMAIL
+
+
+@pytest.mark.parametrize("search_type", ["hotels", "flights", "transports"])
+def test_search_catalogo_interno_solo_staff(client, store, login_as, search_type):
+    """Hoteles, vuelos y transporte son staff (matriz P1): cliente ve 0."""
+    login_as(client, ADMIN_EMAIL)
+    admin_total = _search(client, type=search_type).get_json()["total"]
+    login_as(client, CLIENT_EMAIL)
+    resp = _search(client, type=search_type)
+    assert resp.status_code == 200
+    assert resp.get_json()["total"] == 0
+    assert admin_total >= 0
+
+
+@pytest.mark.parametrize("search_type", ["packages", "destinations", "activities"])
+def test_search_catalogo_publico_cliente(client, store, login_as, search_type):
+    """Paquetes, destinos y actividades son catálogo público (matriz P1)."""
+    login_as(client, CLIENT_EMAIL)
+    resp = _search(client, type=search_type)
+    assert resp.status_code == 200
+    client_total = resp.get_json()["total"]
+    login_as(client, ADMIN_EMAIL)
+    admin_total = _search(client, type=search_type).get_json()["total"]
+    assert client_total == admin_total
+    assert admin_total > 0
 
 
 def test_search_clients_solo_staff(client, login_as):

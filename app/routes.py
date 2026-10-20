@@ -1578,7 +1578,7 @@ def api_search():
         else:
             query = searcher(q=q, category=category, destination=destination,
                              min_price=min_price, max_price=max_price,
-                             min_stars=min_stars)
+                             min_stars=min_stars, current_user=user, is_staff=is_staff)
     except Exception:
         return jsonify({"success": False, "error": "Error en la búsqueda."}), 500
 
