@@ -341,6 +341,15 @@ def dashboard():
     )
 
 
+@bp.route("/api/dashboard/stats")
+@permission_required("dashboard:view")
+def api_dashboard_stats():
+    """Estadísticas del dashboard (RF-14). Admin/employee."""
+    from .analytics import collect_stats
+    stats = collect_stats(store.bookings, store.payments, store.packages, store.clients)
+    return jsonify({"success": True, "data": stats})
+
+
 @bp.route("/ai-predictive")
 @permission_required("ai:predictive_view")
 def ai_predictive():

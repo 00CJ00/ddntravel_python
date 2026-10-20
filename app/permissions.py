@@ -158,6 +158,7 @@ ENDPOINT_PERMISSIONS: dict[str, str] = {
     "main.google_authorized": "session:entry",
     "main.logout": "session:logout",
     "main.dashboard": "dashboard:view",
+    "main.api_dashboard_stats": "dashboard:view",
     "main.ai_predictive": "ai:predictive_view",
     "main.bookings": "bookings:view",
     "main.booking_quote": "bookings:create",

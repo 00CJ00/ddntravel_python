@@ -99,6 +99,12 @@ class Config:
     ENABLE_SCHEDULER = _flag("ENABLE_SCHEDULER", "0")
     ALERTS_INTERVAL_HOURS = int(os.environ.get("ALERTS_INTERVAL_HOURS", "24"))
 
+    # --- Estadísticas del dashboard (fase P5, RF-14) ---
+    # Viajes mínimos para considerar un cliente "frecuente".
+    FREQUENT_CLIENT_MIN = int(os.environ.get("FREQUENT_CLIENT_MIN", "3"))
+    # Factor sobre la media mensual de reservas que define una "temporada alta".
+    PEAK_SEASON_FACTOR = float(os.environ.get("PEAK_SEASON_FACTOR", "1.25"))
+
     # --- Emisor de facturas (RF-11) ---
     AGENCY_RNC = os.environ.get("AGENCY_RNC", "131456789")
     AGENCY_NAME = os.environ.get("AGENCY_NAME", "DDN Travel S.R.L.")
