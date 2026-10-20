@@ -62,3 +62,31 @@ def test_reporte_empleado_200(client, login_as):
     login_as(client, EMPLOYEE_EMAIL)
     resp = client.get("/reports/bookings.xlsx")
     assert resp.status_code == 200
+
+
+def test_reporte_payments_pdf(client, login_as):
+    login_as(client, ADMIN_EMAIL)
+    resp = client.get("/reports/payments.pdf")
+    assert resp.status_code == 200
+    assert resp.data[:5] == b"%PDF-"
+
+
+def test_reporte_payments_xlsx(client, login_as):
+    login_as(client, ADMIN_EMAIL)
+    resp = client.get("/reports/payments.xlsx")
+    assert resp.status_code == 200
+    wb = load_workbook(__import__("io").BytesIO(resp.data))
+    assert wb.active is not None
+
+
+def test_reporte_revenue_pdf(client, login_as):
+    login_as(client, ADMIN_EMAIL)
+    resp = client.get("/reports/revenue.pdf")
+    assert resp.status_code == 200
+    assert resp.data[:5] == b"%PDF-"
+
+
+def test_reporte_revenue_xlsx(client, login_as):
+    login_as(client, ADMIN_EMAIL)
+    resp = client.get("/reports/revenue.xlsx")
+    assert resp.status_code == 200

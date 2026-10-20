@@ -54,8 +54,36 @@ def occupancy_report(date_from=None, date_to=None, status="", destination=""):
     return rows
 
 
+def payments_report(date_from=None, date_to=None, status="", destination=""):
+    query = m.Payment.query
+    if date_from:
+        query = query.filter(m.Payment.created_at >= date_from)
+    if date_to:
+        query = query.filter(m.Payment.created_at <= date_to)
+    if status:
+        query = query.filter(m.Payment.status == status)
+    if destination:
+        query = query.join(m.Booking, m.Payment.booking_id == m.Booking.id).filter(
+            m.Booking.destination_name == destination)
+    return query.limit(MAX_ROWS).all()
+
+
+def revenue_report(date_from=None, date_to=None, status="", destination=""):
+    query = m.Payment.query.filter(m.Payment.status == "Completado")
+    if date_from:
+        query = query.filter(m.Payment.created_at >= date_from)
+    if date_to:
+        query = query.filter(m.Payment.created_at <= date_to)
+    if destination:
+        query = query.join(m.Booking, m.Payment.booking_id == m.Booking.id).filter(
+            m.Booking.destination_name == destination)
+    return query.limit(MAX_ROWS).all()
+
+
 REPORTS = {
     "bookings": bookings_report,
     "clients": clients_report,
     "occupancy": occupancy_report,
+    "payments": payments_report,
+    "revenue": revenue_report,
 }

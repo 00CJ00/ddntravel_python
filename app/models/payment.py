@@ -42,6 +42,7 @@ class Payment(BaseEntity, db.Model):
     original_payment = db.relationship(
         "Payment", remote_side="Payment.id",
         foreign_keys=[original_payment_id])
+    booking = db.relationship("Booking")
 
     # Alias de compatibilidad con los nombres que usan las plantillas.
     payment_method = synonym("method")
