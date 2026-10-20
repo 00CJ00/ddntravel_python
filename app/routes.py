@@ -1610,6 +1610,43 @@ def api_search():
     })
 
 
+@bp.route("/reports/<kind>.<fmt>")
+@permission_required("reports:view")
+def download_report(kind, fmt):
+    """Descarga un reporte en PDF o XLSX (RF-15). Admin/employee."""
+    from .reports import formatters, generators
+    user = get_current_user()
+    data = request.args
+    date_from = data.get("date_from") or None
+    date_to = data.get("date_to") or None
+    status = data.get("status", "").strip()
+    destination = data.get("destination", "").strip()
+
+    if fmt not in ("pdf", "xlsx"):
+        return jsonify({"success": False, "error": "Formato inválido (usa pdf o xlsx)."}), 422
+    try:
+        headers, rows, totals = formatters.build_report(
+            kind, date_from=date_from, date_to=date_to,
+            status=status, destination=destination)
+    except ValueError:
+        return jsonify({"success": False,
+                        "error": f"Tipo de reporte inválido: '{kind}'."}), 422
+
+    filename = f"reporte_{kind}_{date.today().isoformat()}.{fmt}"
+    if fmt == "xlsx":
+        buf = generators.generate_xlsx(f"Reporte {kind}", headers, rows, totals=totals)
+        mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        buf = generators.generate_pdf(f"Reporte {kind}", headers, rows, totals=totals,
+                                      user=user.name if user else "", date_from=date_from,
+                                      date_to=date_to)
+        mimetype = "application/pdf"
+
+    store.record_event("DESCARGAR_REPORTE", "Reportes", user_id=user.id, user_name=user.name,
+                       details=f"Reporte {kind} en {fmt} descargado.")
+    return send_file(buf, mimetype=mimetype, as_attachment=True, download_name=filename)
+
+
 @bp.route("/api/health")
 def health():
     return jsonify({"status": "ok", "app": "DDN Travel Server (Python)"})
